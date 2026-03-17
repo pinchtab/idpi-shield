@@ -28,7 +28,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	idpi "github.com/idpi-shield/idpi-shield-go"
+	idpi "github.com/pinchtab/idpi-shield"
 )
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -41,10 +41,10 @@ type AskRequest struct {
 }
 
 type AskResponse struct {
-	Answer     string         `json:"answer,omitempty"`
-	Blocked    bool           `json:"blocked"`
-	RiskResult idpi.RiskResult `json:"risk_result"`
-	ProcessedAt time.Time     `json:"processed_at"`
+	Answer      string          `json:"answer,omitempty"`
+	Blocked     bool            `json:"blocked"`
+	RiskResult  idpi.RiskResult `json:"risk_result"`
+	ProcessedAt time.Time       `json:"processed_at"`
 }
 
 type HealthResponse struct {
@@ -53,11 +53,11 @@ type HealthResponse struct {
 }
 
 type StatsResponse struct {
-	TotalRequests  int64 `json:"total_requests"`
-	BlockedCount   int64 `json:"blocked_count"`
-	ThreatCount    int64 `json:"threat_count"`
-	CleanCount     int64 `json:"clean_count"`
-	BlockRate      string `json:"block_rate"`
+	TotalRequests int64  `json:"total_requests"`
+	BlockedCount  int64  `json:"blocked_count"`
+	ThreatCount   int64  `json:"threat_count"`
+	CleanCount    int64  `json:"clean_count"`
+	BlockRate     string `json:"block_rate"`
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -65,14 +65,14 @@ type StatsResponse struct {
 // ─────────────────────────────────────────────────────────────────────────────
 
 type server struct {
-	client         *idpi.Client
-	totalRequests  atomic.Int64
-	blockedCount   atomic.Int64
-	threatCount    atomic.Int64
+	client        *idpi.Shield
+	totalRequests atomic.Int64
+	blockedCount  atomic.Int64
+	threatCount   atomic.Int64
 }
 
 func main() {
-	port   := flag.Int("port", 8080, "Port to listen on")
+	port := flag.Int("port", 8080, "Port to listen on")
 	strict := flag.Bool("strict", false, "Enable strict mode (blocks at score >= 40)")
 	flag.Parse()
 
@@ -154,7 +154,7 @@ func (s *server) idpiMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		if result.Blocked {
 			status = "BLOCKED "
 			s.blockedCount.Add(1)
-		} else if result.Threat {
+		} else if result.Score > 0 {
 			status = "THREAT  "
 			s.threatCount.Add(1)
 		}
@@ -177,8 +177,8 @@ func (s *server) idpiMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		// Safe — attach result and pass to next handler
 		// Store in request header so next handler can access it
 		r.Header.Set("X-IDPI-Score", fmt.Sprintf("%d", result.Score))
-		r.Header.Set("X-IDPI-Level", string(result.Level))
-		r.Header.Set("X-IDPI-Threat", fmt.Sprintf("%v", result.Threat))
+		r.Header.Set("X-IDPI-Level", result.Level)
+		r.Header.Set("X-IDPI-Threat", fmt.Sprintf("%v", result.Score > 0))
 
 		// Re-pack the body for the next handler
 		r.Body = io.NopCloser(strings.NewReader(string(body)))

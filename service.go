@@ -70,8 +70,6 @@ func (s *serviceClient) assess(ctx context.Context, text, sourceURL, mode string
 		return nil, fmt.Errorf("idpishield: decode response: %w", err)
 	}
 
-	result.Source = "service"
-
 	// Ensure slices are never nil for JSON consistency
 	if result.Patterns == nil {
 		result.Patterns = []string{}

@@ -24,7 +24,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	idpi "github.com/idpi-shield/idpi-shield-go"
+	idpi "github.com/pinchtab/idpi-shield"
 )
 
 const (
@@ -38,9 +38,9 @@ const (
 )
 
 func main() {
-	url    := flag.String("url", "", "URL to fetch and scan")
+	url := flag.String("url", "", "URL to fetch and scan")
 	strict := flag.Bool("strict", false, "Enable strict mode")
-	demo   := flag.Bool("demo", false, "Run a local demo with simulated attack content")
+	demo := flag.Bool("demo", false, "Run a local demo with simulated attack content")
 	flag.Parse()
 
 	client := idpi.New(idpi.Config{
@@ -69,7 +69,7 @@ func main() {
 	processURL(client, *url)
 }
 
-func processURL(client *idpi.Client, url string) {
+func processURL(client *idpi.Shield, url string) {
 	fmt.Println()
 	fmt.Printf("%s╔════════════════════════════════════════════════╗%s\n", bold, reset)
 	fmt.Printf("%s║       IDPI Shield — AI Web Agent               ║%s\n", bold, reset)
@@ -113,7 +113,7 @@ func processURL(client *idpi.Client, url string) {
 		return
 	}
 
-	if result.Threat {
+	if result.Score > 0 {
 		fmt.Printf("%s[⚠ WARNING]%s Low-severity threat detected but not blocked\n", yellow+bold, reset)
 		fmt.Printf("  Score: %d | Level: %s\n", result.Score, result.Level)
 		fmt.Printf("  Reason: %s\n", result.Reason)
@@ -163,7 +163,7 @@ func printBlocked(msg string, result idpi.RiskResult) {
 	fmt.Printf("  %s%s%s\n", red+bold, msg, reset)
 	fmt.Println()
 	fmt.Printf("  Score:      %d/100\n", result.Score)
-	fmt.Printf("  Level:      %s%s%s\n", red+bold, strings.ToUpper(string(result.Level)), reset)
+	fmt.Printf("  Level:      %s%s%s\n", red+bold, strings.ToUpper(result.Level), reset)
 	fmt.Printf("  Reason:     %s\n", result.Reason)
 	if len(result.Categories) > 0 {
 		fmt.Printf("  Categories: %s\n", strings.Join(result.Categories, ", "))
@@ -175,7 +175,7 @@ func printBlocked(msg string, result idpi.RiskResult) {
 }
 
 // runDemo runs without needing a live URL — shows all three scenarios
-func runDemo(client *idpi.Client) {
+func runDemo(client *idpi.Shield) {
 	scenarios := []struct {
 		name    string
 		url     string
@@ -257,7 +257,7 @@ Here are my top 5 tips for getting more done each day:
 
 		if result.Blocked {
 			printBlocked("⛔ Attack detected — AI was NOT exposed to this content", result)
-		} else if result.Threat {
+		} else if result.Score > 0 {
 			fmt.Printf("  %s⚠ Threat detected but below block threshold (score=%d)%s\n",
 				yellow+bold, result.Score, reset)
 			fmt.Printf("  Categories: %s\n", strings.Join(result.Categories, ", "))
