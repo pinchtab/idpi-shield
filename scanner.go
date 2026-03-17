@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/idpi-shield/idpi-shield-go/patterns"
+	"github.com/pinchtab/idpi-shield/patterns"
 )
 
 // scanner runs the detection pattern engine against normalized text.
@@ -134,9 +134,9 @@ func computeScore(matches []match) int {
 }
 
 // buildResult constructs a RiskResult from scan matches.
-func buildResult(matches []match, normalizedText string, strict bool) RiskResult {
+func buildResult(matches []match, _ string, strict bool) RiskResult {
 	if len(matches) == 0 {
-		return safeResult("local", normalizedText)
+		return safeResult("local", "")
 	}
 
 	score := computeScore(matches)
@@ -166,12 +166,9 @@ func buildResult(matches []match, normalizedText string, strict bool) RiskResult
 		Score:      score,
 		Level:      level,
 		Blocked:    blocked,
-		Threat:     true,
 		Reason:     reason,
 		Patterns:   patternIDs,
 		Categories: categories,
-		Source:     "local",
-		Normalized: normalizedText,
 	}
 }
 

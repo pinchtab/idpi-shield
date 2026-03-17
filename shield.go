@@ -24,9 +24,9 @@ import (
 	"time"
 )
 
-// Config controls the behavior of an idpi-shield Client.
+// Config controls the behavior of a Shield instance.
 type Config struct {
-	// Mode controls analysis depth: ModeLight, ModeBalanced (default), or ModeSmart.
+	// Mode controls analysis depth: fast, balanced (default), or deep.
 	Mode Mode
 
 	// AllowedDomains is a list of trusted domain patterns for CheckDomain.
@@ -38,7 +38,7 @@ type Config struct {
 	StrictMode bool
 
 	// ServiceURL is the URL of the idpi-shield analysis service.
-	// Only used in ModeSmart. Example: "http://localhost:7432"
+	// Only used in deep mode. Example: "http://localhost:7432"
 	ServiceURL string
 
 	// ServiceTimeout is the timeout for HTTP requests to the service.
@@ -46,9 +46,9 @@ type Config struct {
 	ServiceTimeout time.Duration
 }
 
-// Client is the main entry point for idpi-shield analysis.
+// Shield is the main entry point for idpi-shield analysis.
 // Safe for concurrent use by multiple goroutines.
-type Client struct {
+type Shield struct {
 	cfg        Config
 	scanner    *scanner
 	normalizer *normalizer
@@ -56,34 +56,53 @@ type Client struct {
 	service    *serviceClient
 }
 
-// New creates a new idpi-shield Client with the given configuration.
-func New(cfg Config) *Client {
-	c := &Client{
+// New creates a new Shield with the given configuration.
+func New(cfg Config) *Shield {
+	if cfg.Mode == "" {
+		cfg.Mode = ModeBalanced
+	}
+
+	s := &Shield{
 		cfg:        cfg,
 		scanner:    newScanner(),
 		normalizer: newNormalizer(),
 		domain:     newDomainChecker(cfg.AllowedDomains),
 	}
 
-	if cfg.ServiceURL != "" && cfg.Mode == ModeSmart {
+	if cfg.ServiceURL != "" && cfg.Mode == ModeDeep {
 		timeout := cfg.ServiceTimeout
 		if timeout == 0 {
 			timeout = 5 * time.Second
 		}
-		c.service = newServiceClient(cfg.ServiceURL, timeout)
+		s.service = newServiceClient(cfg.ServiceURL, timeout)
 	}
 
-	return c
+	return s
 }
 
-// Scan analyzes text for indirect prompt injection threats.
+// Assess analyzes text for indirect prompt injection threats.
 // Returns a RiskResult with score, severity level, and matched patterns.
-func (c *Client) Scan(text string) RiskResult {
-	return c.ScanContext(context.Background(), text)
+func (s *Shield) Assess(text, url string) RiskResult {
+	result := s.AssessContext(context.Background(), text, url)
+
+	if url == "" || len(s.cfg.AllowedDomains) == 0 {
+		return result
+	}
+
+	domainResult := s.domain.CheckDomain(url, s.cfg.StrictMode)
+	if domainResult.Score > result.Score {
+		return domainResult
+	}
+
+	result.Blocked = result.Blocked || domainResult.Blocked
+	if domainResult.Reason != "No threats detected" {
+		result.Reason = result.Reason + "; " + domainResult.Reason
+	}
+	return result
 }
 
-// ScanContext is like Scan but accepts a context for controlling service call cancellation.
-func (c *Client) ScanContext(ctx context.Context, text string) RiskResult {
+// AssessContext is like Assess but accepts a context for service call cancellation.
+func (s *Shield) AssessContext(ctx context.Context, text, sourceURL string) RiskResult {
 	if len(text) == 0 {
 		return safeResult("local", "")
 	}
@@ -92,25 +111,22 @@ func (c *Client) ScanContext(ctx context.Context, text string) RiskResult {
 	analysisText := text
 	normalizedText := ""
 
-	if c.cfg.Mode >= ModeBalanced {
-		normalizedText = c.normalizer.Normalize(text)
+	if s.cfg.Mode != ModeFast {
+		normalizedText = s.normalizer.Normalize(text)
 		analysisText = normalizedText
 	}
 
 	// Run pattern matching
-	matches := c.scanner.scan(analysisText)
-	result := buildResult(matches, normalizedText, c.cfg.StrictMode)
+	matches := s.scanner.scan(analysisText)
+	result := buildResult(matches, normalizedText, s.cfg.StrictMode)
 
-	// Smart mode: escalate to service if score warrants it
-	if c.cfg.Mode == ModeSmart && c.service != nil && result.Score >= thresholdEscalation {
-		serviceResult, err := c.service.assess(ctx, text, "", c.cfg.Mode.String())
+	// Deep mode: escalate to service if score warrants it.
+	if s.cfg.Mode == ModeDeep && s.service != nil && result.Score >= thresholdEscalation {
+		serviceResult, err := s.service.assess(ctx, text, sourceURL, s.cfg.Mode.String())
 		if err == nil {
-			// Service provided a definitive answer — use it
-			serviceResult.Normalized = normalizedText
-			serviceResult.Blocked = shouldBlock(serviceResult.Score, c.cfg.StrictMode)
+			serviceResult.Blocked = shouldBlock(serviceResult.Score, s.cfg.StrictMode)
 			return *serviceResult
 		}
-		// Service unreachable — fall back to local result gracefully
 	}
 
 	return result
@@ -122,8 +138,8 @@ const thresholdEscalation = 60
 // CheckDomain evaluates whether a URL's domain is in the configured allowlist.
 // Returns a RiskResult indicating whether the domain is trusted.
 // If no allowlist is configured, always returns safe.
-func (c *Client) CheckDomain(rawURL string) RiskResult {
-	return c.domain.CheckDomain(rawURL, c.cfg.StrictMode)
+func (s *Shield) CheckDomain(rawURL string) RiskResult {
+	return s.domain.CheckDomain(rawURL, s.cfg.StrictMode)
 }
 
 // Wrap encloses untrusted web content with trust boundary markers.
@@ -133,8 +149,11 @@ func (c *Client) CheckDomain(rawURL string) RiskResult {
 // The returned string uses XML-style tags to clearly delineate boundaries.
 // Any existing XML-like tags in the content are escaped to prevent injection
 // through the wrapping mechanism itself.
-func (c *Client) Wrap(content, sourceURL string) string {
+func (s *Shield) Wrap(content, sourceURL string) string {
 	escaped := escapeContentTags(content)
+	if sourceURL == "" {
+		sourceURL = "unknown-source"
+	}
 
 	var b strings.Builder
 	b.WriteString("<trusted_system_context>\n")
@@ -149,6 +168,16 @@ func (c *Client) Wrap(content, sourceURL string) string {
 	b.WriteString("</untrusted_web_content>")
 
 	return b.String()
+}
+
+// Scan is a compatibility alias for Assess.
+func (s *Shield) Scan(text string) RiskResult {
+	return s.Assess(text, "")
+}
+
+// ScanContext is a compatibility alias for AssessContext.
+func (s *Shield) ScanContext(ctx context.Context, text string) RiskResult {
+	return s.AssessContext(ctx, text, "")
 }
 
 // escapeContentTags neutralizes XML-like tags in content that could interfere

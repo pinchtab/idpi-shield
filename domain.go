@@ -52,12 +52,9 @@ func (d *domainChecker) CheckDomain(rawURL string, strict bool) RiskResult {
 			Score:      30,
 			Level:      ScoreToLevel(30),
 			Blocked:    shouldBlock(30, strict),
-			Threat:     true,
 			Reason:     "Unable to parse domain from URL",
 			Patterns:   []string{},
 			Categories: []string{},
-			Source:     "local",
-			Normalized: rawURL,
 		}
 	}
 
@@ -70,12 +67,9 @@ func (d *domainChecker) CheckDomain(rawURL string, strict bool) RiskResult {
 		Score:      score,
 		Level:      ScoreToLevel(score),
 		Blocked:    shouldBlock(score, strict),
-		Threat:     true,
 		Reason:     "Domain not in allowlist: " + host,
 		Patterns:   []string{},
 		Categories: []string{},
-		Source:     "local",
-		Normalized: host,
 	}
 }
 
