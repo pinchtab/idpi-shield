@@ -3,6 +3,7 @@ package main
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 	"time"
 
@@ -85,5 +86,41 @@ func TestApplyProfileDefaultsInvalid(t *testing.T) {
 	cfg := idpi.Config{}
 	if err := applyProfileDefaults("weird", &cfg); err == nil {
 		t.Fatal("expected error for invalid profile")
+	}
+}
+
+func TestResolveAuthTokenUsesFlagValue(t *testing.T) {
+	t.Setenv("IDPI_MCP_TOKEN", "env-token")
+
+	got := resolveAuthToken("flag-token")
+	if got != "flag-token" {
+		t.Fatalf("expected flag token to win, got %q", got)
+	}
+}
+
+func TestResolveAuthTokenFallsBackToEnv(t *testing.T) {
+	t.Setenv("IDPI_MCP_TOKEN", "env-token")
+
+	got := resolveAuthToken("")
+	if got != "env-token" {
+		t.Fatalf("expected env token fallback, got %q", got)
+	}
+}
+
+func TestResolveAuthTokenHandlesWhitespace(t *testing.T) {
+	t.Setenv("IDPI_MCP_TOKEN", "  env-token  ")
+
+	got := resolveAuthToken("  ")
+	if got != "env-token" {
+		t.Fatalf("expected trimmed env token, got %q", got)
+	}
+}
+
+func TestResolveAuthTokenEmptyWhenUnset(t *testing.T) {
+	_ = os.Unsetenv("IDPI_MCP_TOKEN")
+
+	got := resolveAuthToken("")
+	if got != "" {
+		t.Fatalf("expected empty token when unset, got %q", got)
 	}
 }

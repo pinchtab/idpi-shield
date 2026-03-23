@@ -160,6 +160,15 @@ The current implementation includes lightweight production guardrails:
 4. **Circuit breaker**: `ServiceCircuitFailureThreshold` + `ServiceCircuitCooldown` prevent repeated service stalls from impacting local scans.
 5. **MCP HTTP auth**: Optional bearer/API-key auth (`--auth-token`) for streamable HTTP transport.
 
+Circuit breaker scope:
+- Breaker state is process-local (per running `idpi-shield` instance).
+- In horizontally scaled deployments, each instance tracks failures independently.
+- For shared breaker behavior across replicas, use an external shared-state mechanism in your platform layer.
+
+Profile safety note:
+- `default` profile is intentionally lightweight for local/dev usage.
+- Use `--profile production` in production startup commands and deployment manifests.
+
 ## Dependencies
 
 The root library primarily uses Go standard library components plus targeted external packages where needed (for example Unicode normalization). CLI/MCP adapter components have additional dependencies.

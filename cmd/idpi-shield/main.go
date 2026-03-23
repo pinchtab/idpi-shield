@@ -84,6 +84,8 @@ func runMCPServe(args []string) error {
 		return err
 	}
 
+	*authToken = resolveAuthToken(*authToken)
+
 	baseCfg := idpi.Config{
 		AllowedDomains:                 parseDomains(*domains),
 		StrictMode:                     *strict,
@@ -328,6 +330,7 @@ func printMCPUsage(w io.Writer) {
 	fmt.Fprintln(w, "  --service-circuit-failures  consecutive transient failures before opening service circuit")
 	fmt.Fprintln(w, "  --service-circuit-cooldown  duration to keep service circuit open (e.g. 15s)")
 	fmt.Fprintln(w, "  --auth-token           bearer token required for MCP HTTP transport")
+	fmt.Fprintln(w, "                         if omitted, reads IDPI_MCP_TOKEN from environment")
 	fmt.Fprintln(w, "  --max-input-bytes       max bytes analyzed per request (0 = unlimited)")
 	fmt.Fprintln(w, "  --max-decode-depth      max recursive decode depth (0 = default)")
 	fmt.Fprintln(w, "  --max-decoded-variants  max decoded variants scanned (0 = default)")
@@ -391,4 +394,13 @@ func withBearerAuth(next http.Handler, token string) http.Handler {
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+func resolveAuthToken(flagToken string) string {
+	t := strings.TrimSpace(flagToken)
+	if t != "" {
+		return t
+	}
+
+	return strings.TrimSpace(os.Getenv("IDPI_MCP_TOKEN"))
 }

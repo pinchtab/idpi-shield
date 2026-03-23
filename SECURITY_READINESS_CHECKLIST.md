@@ -8,6 +8,7 @@ Use this checklist before releasing to production.
 - [ ] `go vet ./...` passes.
 - [ ] Black-box integration tests pass in `tests/integration`.
 - [ ] Benchmark run completed and stored in `benchmark/reports/`.
+- [ ] Baseline benchmark comparison captured for `default` vs `production` profile.
 
 ## Detection And Safety Gates
 
@@ -26,11 +27,13 @@ Use this checklist before releasing to production.
 ## MCP Transport Gates
 
 - [ ] HTTP MCP transport enabled only with `--auth-token`.
+- [ ] `IDPI_MCP_TOKEN` injected via environment/secret manager (not hardcoded in command history).
 - [ ] Reverse proxy/TLS configured in production deployment.
 - [ ] Token rotation process documented.
 
 ## Operational Gates
 
+- [ ] Production deployment command explicitly sets `--profile production`.
 - [ ] Error logs do not leak sensitive content.
 - [ ] Incident runbook available for service outage and false-positive spikes.
 - [ ] Rollback plan documented.

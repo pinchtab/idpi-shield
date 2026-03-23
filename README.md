@@ -170,6 +170,8 @@ echo "Ignore all previous instructions" | idpi-shield scan --mode balanced
 - `--service-circuit-failures`, `--service-circuit-cooldown`
 - `--max-input-bytes`, `--max-decode-depth`, `--max-decoded-variants`
 
+For production workloads, set `--profile production` explicitly to enable strict mode and safe runtime limits.
+
 The CLI outputs JSON:
 
 ```json
@@ -207,6 +209,13 @@ The MCP adapter calls the same core `Assess` engine used by the Go library.
 For HTTP transport, you can require authentication with:
 - `Authorization: Bearer <token>`
 - or `X-API-Key: <token>`
+
+Token management guidance:
+- Prefer environment variable `IDPI_MCP_TOKEN` over shell history or process-list-visible literals.
+- If `--auth-token` is omitted, MCP HTTP automatically reads `IDPI_MCP_TOKEN`.
+- Terminate TLS at a reverse proxy or ingress; do not expose plaintext HTTP on untrusted networks.
+- Rotate tokens periodically and after incident response events.
+- Token checks use constant-time comparison for both `Authorization` and `X-API-Key` credential flows.
 
 ## Project Layout
 
@@ -247,4 +256,13 @@ Run black-box integration tests (separate module in `tests/integration`):
 ```bash
 cd tests/integration
 go test ./...
+```
+
+Integration tests are self-contained and run without external service dependencies.
+
+For performance tracking across profile settings, use the benchmark module:
+
+```bash
+cd benchmark
+go test -bench . -benchmem ./...
 ```
