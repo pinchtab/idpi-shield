@@ -22,25 +22,30 @@ import (
 	"time"
 
 	"github.com/pinchtab/idpishield/internal/engine"
+	"github.com/pinchtab/idpishield/internal/types"
 )
 
+// --- Type aliases (re-exported from internal/types) ---
+
 // Mode configures analysis depth.
-type Mode = engine.Mode
+type Mode = types.Mode
 
 const (
 	// ModeFast performs pattern matching only against raw input.
-	ModeFast = engine.ModeFast
+	ModeFast = types.ModeFast
 
 	// ModeBalanced applies normalization/preprocessing before pattern matching.
-	ModeBalanced = engine.ModeBalanced
+	ModeBalanced = types.ModeBalanced
 
 	// ModeDeep includes balanced analysis plus optional service escalation.
-	ModeDeep = engine.ModeDeep
+	ModeDeep = types.ModeDeep
 )
 
 // RiskResult is the canonical return type for all idpi-shield analysis operations.
 // Every client library and the service returns this exact structure.
-type RiskResult = engine.RiskResult
+type RiskResult = types.RiskResult
+
+// --- Public types ---
 
 // Config controls the behavior of a Shield instance.
 type Config struct {
@@ -136,21 +141,23 @@ func (s *Shield) ScanContext(ctx context.Context, text string) RiskResult {
 	return s.AssessContext(ctx, text, "")
 }
 
+// --- Functions ---
+
 // ParseMode converts a string to a Mode value.
 // Returns ModeBalanced for unrecognized values.
 func ParseMode(s string) Mode {
-	return engine.ParseMode(s)
+	return types.ParseMode(s)
 }
 
 // ParseModeStrict converts a string to a Mode value and returns an error for unsupported values.
 // Empty input defaults to ModeBalanced.
 func ParseModeStrict(s string) (Mode, error) {
-	return engine.ParseModeStrict(s)
+	return types.ParseModeStrict(s)
 }
 
 // ScoreToLevel maps a 0–100 score to its corresponding severity level.
 func ScoreToLevel(score int) string {
-	return engine.ScoreToLevel(score)
+	return types.ScoreToLevel(score)
 }
 
 // AssessWithMode selects a Shield instance by mode and runs Assess.
