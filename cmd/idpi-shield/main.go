@@ -15,7 +15,7 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
-	idpi "github.com/pinchtab/idpi-shield"
+	idpi "github.com/pinchtab/idpishield"
 )
 
 func main() {

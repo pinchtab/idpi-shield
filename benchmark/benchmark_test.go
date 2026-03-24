@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	idpishield "github.com/pinchtab/idpi-shield"
+	idpishield "github.com/pinchtab/idpishield"
 )
 
 func TestRunBenchmark(t *testing.T) {

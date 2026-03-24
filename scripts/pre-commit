@@ -29,10 +29,28 @@ elif [ -x "${GOPATH:-$HOME/go}/bin/golangci-lint" ]; then
 fi
 
 if [ -n "$GOLANGCI_LINT" ]; then
-  dirs=$(echo "$staged_go" | xargs -n1 dirname | sort -u | sed 's|$|/...|')
-  if ! $GOLANGCI_LINT run --timeout=5m $dirs; then
-    echo "❌ golangci-lint: issues found"
-    exit 1
+  # Filter out directories with their own go.mod (separate modules)
+  dirs=""
+  for d in $(echo "$staged_go" | xargs -n1 dirname | sort -u); do
+    # Walk up from $d to find the nearest go.mod — skip if it's not the root one
+    check="$d"
+    in_main_module=true
+    while [ "$check" != "." ] && [ "$check" != "/" ]; do
+      if [ -f "$check/go.mod" ]; then
+        in_main_module=false
+        break
+      fi
+      check=$(dirname "$check")
+    done
+    if $in_main_module; then
+      dirs="$dirs $d/..."
+    fi
+  done
+  if [ -n "$dirs" ]; then
+    if ! $GOLANGCI_LINT run --timeout=5m $dirs; then
+      echo "❌ golangci-lint: issues found"
+      exit 1
+    fi
   fi
 else
   echo "⚠️  golangci-lint not found, skipping lint"

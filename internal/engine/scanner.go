@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/pinchtab/idpi-shield/patterns"
+	"github.com/pinchtab/idpishield/patterns"
 )
 
 // scanner runs the detection pattern engine against normalized text.

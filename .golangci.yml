@@ -14,6 +14,8 @@ linters:
     paths:
       - testdata
       - benchmark
+      - examples
+      - tests
     rules:
       - linters: [gocyclo]
         path: _test\.go

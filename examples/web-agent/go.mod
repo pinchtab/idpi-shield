@@ -2,7 +2,7 @@ module web-agent
 
 go 1.22
 
-require github.com/pinchtab/idpi-shield v0.0.0
+require github.com/pinchtab/idpishield v0.0.0
 
 // Replace with local path since the library is not yet published
-replace github.com/pinchtab/idpi-shield => ../..
+replace github.com/pinchtab/idpishield => ../..

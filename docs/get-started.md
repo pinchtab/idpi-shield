@@ -3,7 +3,7 @@
 ## As a Go Library
 
 ```bash
-go get github.com/pinchtab/idpi-shield
+go get github.com/pinchtab/idpishield
 ```
 
 ```go
@@ -11,7 +11,7 @@ package main
 
 import (
     "fmt"
-    idpi "github.com/pinchtab/idpi-shield"
+    idpi "github.com/pinchtab/idpishield"
 )
 
 func main() {
@@ -27,7 +27,7 @@ func main() {
 ## As a CLI
 
 ```bash
-go install github.com/pinchtab/idpi-shield/cmd/idpi-shield@latest
+go install github.com/pinchtab/idpishield/cmd/idpi-shield@latest
 ```
 
 ```bash

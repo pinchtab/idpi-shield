@@ -24,7 +24,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	idpi "github.com/pinchtab/idpi-shield"
+	idpi "github.com/pinchtab/idpishield"
 )
 
 const (

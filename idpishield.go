@@ -21,7 +21,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/pinchtab/idpi-shield/internal/engine"
+	"github.com/pinchtab/idpishield/internal/engine"
 )
 
 // Mode configures analysis depth.
