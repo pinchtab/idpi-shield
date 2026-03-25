@@ -39,7 +39,7 @@ func TestServiceClientAssessRetriesThenSuccess(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"score":72,"level":"high","blocked":true,"reason":"from-service"}`)
+		_, _ = fmt.Fprint(w, `{"score":72,"level":"high","blocked":true,"reason":"from-service"}`)
 	}))
 	defer server.Close()
 
