@@ -7,16 +7,16 @@ import "regexp"
 
 // Threat category constants.
 const (
-	CategoryInstructionOverride  = "instruction-override"
-	CategoryExfiltration         = "exfiltration"
-	CategoryRoleHijack           = "role-hijack"
-	CategoryJailbreak            = "jailbreak"
-	CategoryIndirectCommand      = "indirect-command"
-	CategorySocialEngineering    = "social-engineering"
-	CategoryStructuralInjection  = "structural-injection"
-	CategoryDataDestruction      = "data-destruction"
-	CategoryTransactionCoercion  = "transaction-coercion"
-	CategoryOutputSteering       = "output-steering"
+	CategoryInstructionOverride = "instruction-override"
+	CategoryExfiltration        = "exfiltration"
+	CategoryRoleHijack          = "role-hijack"
+	CategoryJailbreak           = "jailbreak"
+	CategoryIndirectCommand     = "indirect-command"
+	CategorySocialEngineering   = "social-engineering"
+	CategoryStructuralInjection = "structural-injection"
+	CategoryDataDestruction     = "data-destruction"
+	CategoryTransactionCoercion = "transaction-coercion"
+	CategoryOutputSteering      = "output-steering"
 )
 
 // Language constants.
