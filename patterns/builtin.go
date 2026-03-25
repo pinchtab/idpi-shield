@@ -1,4 +1,4 @@
-// Package patterns provides the built-in detection patterns for idpi-shield.
+// Package patterns provides the built-in detection patterns for idpishield.
 // These patterns are the Go implementation of the spec defined in spec/PATTERNS.md.
 // All patterns use case-insensitive matching and are compiled once at package init.
 package patterns

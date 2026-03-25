@@ -1,4 +1,4 @@
-// Package types defines the shared type definitions for idpi-shield.
+// Package types defines the shared type definitions for idpishield.
 // Both the public API (root package) and internal engine import from here.
 package types
 
@@ -64,7 +64,7 @@ func ParseModeStrict(s string) (Mode, error) {
 	}
 }
 
-// RiskResult is the canonical return type for all idpi-shield analysis operations.
+// RiskResult is the canonical return type for all idpishield analysis operations.
 // Every client library and the service returns this exact structure.
 type RiskResult struct {
 	// Score is the risk score from 0 (clean) to 100 (confirmed attack).
