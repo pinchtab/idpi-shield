@@ -1,4 +1,6 @@
-package idpishield
+// Package types defines the shared type definitions for idpi-shield.
+// Both the public API (root package) and internal engine import from here.
+package types
 
 import (
 	"fmt"
@@ -100,18 +102,16 @@ func ScoreToLevel(score int) string {
 	}
 }
 
-// shouldBlock determines whether content should be blocked given a score and config.
-func shouldBlock(score int, strict bool) bool {
+// ShouldBlock determines whether content should be blocked given a score and config.
+func ShouldBlock(score int, strict bool) bool {
 	if strict {
 		return score >= 40
 	}
 	return score >= 60
 }
 
-// safeResult returns a clean RiskResult with no threats detected.
-func safeResult(source, normalized string) RiskResult {
-	_ = source
-	_ = normalized
+// SafeResult returns a clean RiskResult with no threats detected.
+func SafeResult() RiskResult {
 	return RiskResult{
 		Score:      0,
 		Level:      "safe",

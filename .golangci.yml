@@ -1,0 +1,26 @@
+version: "2"
+
+linters:
+  enable:
+    - errcheck
+    - govet
+    - staticcheck
+    - unused
+    - ineffassign
+    - gocritic
+    - gocyclo
+    - prealloc
+  exclusions:
+    paths:
+      - testdata
+      - benchmark
+      - examples
+      - tests
+    rules:
+      - linters: [gocyclo]
+        path: _test\.go
+
+formatters:
+  exclusions:
+    paths:
+      - testdata

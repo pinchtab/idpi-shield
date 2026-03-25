@@ -28,7 +28,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	idpi "github.com/pinchtab/idpi-shield"
+	idpi "github.com/pinchtab/idpishield"
 )
 
 // ─────────────────────────────────────────────────────────────────────────────

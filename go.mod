@@ -1,4 +1,4 @@
-module github.com/pinchtab/idpi-shield
+module github.com/pinchtab/idpishield
 
 go 1.23.0
 

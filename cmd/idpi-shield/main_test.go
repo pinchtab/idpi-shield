@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	idpi "github.com/pinchtab/idpi-shield"
+	idpi "github.com/pinchtab/idpishield"
 )
 
 func TestWithBearerAuthAcceptsBearerToken(t *testing.T) {

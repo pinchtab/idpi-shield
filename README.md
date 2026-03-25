@@ -19,13 +19,13 @@ Core output includes:
 ## Install (Go Library)
 
 ```bash
-go get github.com/pinchtab/idpi-shield
+go get github.com/pinchtab/idpishield
 ```
 
 ## Import
 
 ```go
-import idpi "github.com/pinchtab/idpi-shield"
+import idpi "github.com/pinchtab/idpishield"
 ```
 
 ## Minimal Usage
@@ -36,7 +36,7 @@ package main
 import (
 	"fmt"
 
-	idpi "github.com/pinchtab/idpi-shield"
+	idpi "github.com/pinchtab/idpishield"
 )
 
 func main() {
@@ -149,7 +149,7 @@ func (s *Shield) Wrap(text, url string) string
 Install CLI:
 
 ```bash
-go install github.com/pinchtab/idpi-shield/cmd/idpi-shield@latest
+go install github.com/pinchtab/idpishield/cmd/idpi-shield@latest
 ```
 
 Scan from a file:

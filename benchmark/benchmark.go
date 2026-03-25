@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	idpishield "github.com/pinchtab/idpi-shield"
+	idpishield "github.com/pinchtab/idpishield"
 )
 
 // Sample represents a single labeled content sample in the benchmark dataset.

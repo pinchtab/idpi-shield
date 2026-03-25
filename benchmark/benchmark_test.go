@@ -5,12 +5,12 @@ import (
 	"path/filepath"
 	"testing"
 
-	idpishield "github.com/pinchtab/idpi-shield"
+	idpishield "github.com/pinchtab/idpishield"
 )
 
 func TestRunBenchmark(t *testing.T) {
 	// Find the dataset directory relative to this test file.
-	datasetDir := filepath.Join("dataset")
+	datasetDir := "dataset"
 	if _, err := os.Stat(filepath.Join(datasetDir, "malicious")); err != nil {
 		t.Skipf("dataset not found at %s, skipping benchmark test", datasetDir)
 	}
