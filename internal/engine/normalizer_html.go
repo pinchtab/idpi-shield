@@ -8,7 +8,7 @@ import (
 )
 
 var htmlTagHeuristic = regexp.MustCompile(`(?is)<\s*(?:!doctype|html|head|body|meta|title|div|span|p|a|img|section|article|main|script|style|[a-z][a-z0-9:-]*)\b|<!--|</\s*[a-z][a-z0-9:-]*\s*>`)
-var instructionLikeHTMLPattern = regexp.MustCompile(`(?i)\b(ignore|override|reveal|disregard|forget|bypass|jailbreak|system\s+prompt|developer\s+mode|exfiltrat(?:e|ion)|dump\s+secrets?)\b`)
+var instructionLikeHTMLPattern = regexp.MustCompile(`(?i)\b(?:ignore\s+(?:all\s+)?(?:previous|prior)\s+instructions?|disregard\s+(?:all\s+)?(?:(?:previous|prior)\s+)?instructions?|override\s+(?:system|assistant)\s+(?:instructions?|prompt)|bypass\s+security(?:\s+controls?)?|reveal\s+(?:the\s+)?(?:system\s+prompt|secrets?)|jailbreak\s+(?:the\s+)?system|exfiltrat(?:e|ion)\s+(?:data|secrets?)|dump\s+secrets?)\b`)
 
 // looksLikeHTML performs a lightweight heuristic check to avoid parsing plain text.
 func looksLikeHTML(input string) bool {
@@ -52,7 +52,9 @@ func extractHTMLContent(input string) (combined string, signals normalizationSig
 	attrJoined := strings.Join(state.attrs, "\n")
 	signals.HiddenHTMLContent = len(state.hiddenText) > 0
 	signals.HiddenInstructionLikeHTML = instructionLikeHTMLPattern.MatchString(hiddenJoined)
-	signals.AttributeInjection = instructionLikeHTMLPattern.MatchString(attrJoined)
+	signals.HasAttributeText = len(state.attrs) > 0
+	signals.InstructionLikeAttributeText = instructionLikeHTMLPattern.MatchString(attrJoined)
+	signals.AttributeInjection = signals.InstructionLikeAttributeText
 
 	if combined == "" {
 		return "", signals, false
@@ -133,7 +135,7 @@ func extractElementAttrs(node *html.Node, state *htmlExtractionState) {
 			continue
 		}
 
-		if tag == "meta" {
+		if tag == "meta" && key == "content" {
 			state.attrs = append(state.attrs, val)
 		}
 	}

@@ -322,15 +322,12 @@ func buildResultWithSignals(matches []match, text string, signals normalizationS
 	// Apply context-aware scoring to reduce false positives
 	score = applyContextPenalties(score, text, matches)
 
-	if signals.HiddenHTMLContent {
-		score += hiddenHTMLContentScoreBoost
-	}
-
 	if signals.HiddenInstructionLikeHTML {
+		score += hiddenHTMLContentScoreBoost
 		score += hiddenInstructionLikeHTMLScoreBoost
 	}
 
-	if signals.AttributeInjection {
+	if signals.InstructionLikeAttributeText && len(matches) > 0 {
 		score += attributeInjectionScoreBoost
 		score += attributeInstructionLikeScoreBoost
 		if score < attributeInstructionLikeMinScore {
@@ -363,10 +360,10 @@ func buildResultWithSignals(matches []match, text string, signals normalizationS
 	sort.Strings(categories) // deterministic output
 
 	reason := buildReason(matches, catSet)
-	if signals.HiddenHTMLContent {
+	if signals.HiddenInstructionLikeHTML && len(matches) > 0 {
 		reason += "; hidden HTML injection detected"
 	}
-	if signals.AttributeInjection {
+	if signals.InstructionLikeAttributeText && len(matches) > 0 {
 		reason += "; attribute-based injection detected"
 	}
 
