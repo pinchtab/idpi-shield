@@ -10,9 +10,13 @@ import (
 
 var htmlClosingTagHeuristic = regexp.MustCompile(`(?is)</\s*[a-z][a-z0-9:-]*\s*>`)
 var htmlKnownTagHeuristic = regexp.MustCompile(`(?is)<\s*(?:!doctype|html|head|body|meta|title|div|span|p|a|img|section|article|main|header|footer|nav|aside|h[1-6]|ul|ol|li|table|thead|tbody|tr|th|td|form|input|button|label|textarea|select|option|code|pre|blockquote|strong|em|br|hr)\b`)
-var opacityZeroHiddenPattern = regexp.MustCompile(`opacity:0(?:\s*;|\s*!important|$)`)
+var opacityZeroHiddenPattern = regexp.MustCompile(`opacity:0(?:\.0+)?(?:;|!important|$)`)
 var filterOpacityZeroHiddenPattern = regexp.MustCompile(`filter:opacity\(0(?:\s*\)|\s*!important)`)
 var transformScaleZeroHiddenPattern = regexp.MustCompile(`transform:scale\(0(?:\s*\)|\s*!important)`)
+var fontSizeZeroHiddenPattern = regexp.MustCompile(`font-size:0(?:px|em|pt|rem|%)?(?:;|!important|$)`)
+var clipPathInsetHundredPattern = regexp.MustCompile(`clip-path:inset\(100%(?:\)|[^)]*\))`)
+var styleColorPattern = regexp.MustCompile(`(?:^|;)color:([^;]+)`)
+var styleBackgroundPattern = regexp.MustCompile(`(?:^|;)(?:background|background-color):([^;]+)`)
 var instructionLikeHTMLPattern = regexp.MustCompile(`(?i)\b(?:ignore\s+(?:all\s+)?(?:previous|prior)\s+instructions?|disregard\s+(?:all\s+)?(?:(?:previous|prior)\s+)?instructions?|override\s+(?:system|assistant)\s+(?:instructions?|prompt)|bypass\s+security(?:\s+controls?)?|reveal\s+(?:the\s+)?(?:system\s+prompt|secrets?)|jailbreak\s+(?:the\s+)?system|exfiltrat(?:e|ion)\s+(?:data|secrets?)|dump\s+secrets?)\b`)
 
 // looksLikeHTML performs a lightweight heuristic check to avoid parsing plain text.
@@ -38,6 +42,10 @@ type htmlExtractionState struct {
 	hiddenText  []string
 	comments    []string
 	attrs       []string
+
+	hasZeroWidthInjection      bool
+	hasAriaHiddenContent       bool
+	hasCollapsedDetailsContent bool
 }
 
 // extractHTMLContent parses HTML and combines visible and non-visible content
@@ -61,8 +69,11 @@ func extractHTMLContent(input string) (combined string, signals normalizationSig
 
 	hiddenJoined := strings.Join(state.hiddenText, "\n")
 	attrJoined := strings.Join(state.attrs, "\n")
-	signals.HiddenInstructionLikeHTML = instructionLikeHTMLPattern.MatchString(hiddenJoined)
-	signals.InstructionLikeAttributeText = instructionLikeHTMLPattern.MatchString(attrJoined)
+	signals.HiddenInstructionLikeHTML = instructionLikeHTMLPattern.MatchString(stripZeroWidthChars(hiddenJoined))
+	signals.InstructionLikeAttributeText = instructionLikeHTMLPattern.MatchString(stripZeroWidthChars(attrJoined))
+	signals.HasZeroWidthInjection = state.hasZeroWidthInjection
+	signals.HasAriaHiddenContent = state.hasAriaHiddenContent
+	signals.HasCollapsedDetailsContent = state.hasCollapsedDetailsContent
 
 	if combined == "" {
 		return "", signals, false
@@ -91,6 +102,13 @@ func traverseDOM(node *html.Node, state *htmlExtractionState, inheritedHidden bo
 			if elementIsHidden(node) {
 				isHidden = true
 			}
+			if isAriaHiddenWithSubstantialContent(node) {
+				state.hasAriaHiddenContent = true
+			}
+			if isCollapsedDetailsWithSubstantialContent(node) {
+				state.hasCollapsedDetailsContent = true
+				isHidden = true
+			}
 			extractElementAttrs(node, state)
 		}
 	case html.CommentNode:
@@ -101,6 +119,9 @@ func traverseDOM(node *html.Node, state *htmlExtractionState, inheritedHidden bo
 		}
 	case html.TextNode:
 		if !isIgnored {
+			if hasZeroWidthInjection(node.Data) {
+				state.hasZeroWidthInjection = true
+			}
 			if text := normalizeExtractedText(node.Data); text != "" {
 				if isHidden {
 					state.hiddenText = append(state.hiddenText, text)
@@ -135,6 +156,9 @@ func extractElementAttrs(node *html.Node, state *htmlExtractionState) {
 	tag := strings.ToLower(node.Data)
 	for _, attr := range node.Attr {
 		key := strings.ToLower(attr.Key)
+		if hasZeroWidthInjection(attr.Val) {
+			state.hasZeroWidthInjection = true
+		}
 		val := normalizeExtractedText(attr.Val)
 		if val == "" {
 			continue
@@ -201,13 +225,16 @@ func styleIndicatesHidden(style string) bool {
 	if filterOpacityZeroHiddenPattern.MatchString(compact) {
 		return true
 	}
-	if strings.Contains(compact, "font-size:0") {
+	if fontSizeZeroHiddenPattern.MatchString(compact) {
 		return true
 	}
 	if transformScaleZeroHiddenPattern.MatchString(compact) {
 		return true
 	}
-	if strings.Contains(compact, "clip-path:inset(") {
+	if clipPathInsetHundredPattern.MatchString(compact) {
+		return true
+	}
+	if styleHasColorCamouflage(compact) {
 		return true
 	}
 
@@ -234,4 +261,135 @@ func normalizeExtractedText(s string) string {
 		return ""
 	}
 	return strings.TrimSpace(collapseSpaces(s))
+}
+
+func hasZeroWidthInjection(s string) bool {
+	if s == "" {
+		return false
+	}
+
+	count := 0
+	for _, r := range s {
+		switch r {
+		case '\u200B', '\u200C', '\u200D', '\uFEFF', '\u00AD', '\u2060':
+			count++
+			if count >= 3 {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+func stripZeroWidthChars(s string) string {
+	if s == "" {
+		return s
+	}
+
+	return strings.Map(func(r rune) rune {
+		switch r {
+		case '\u200B', '\u200C', '\u200D', '\uFEFF', '\u00AD', '\u2060':
+			return -1
+		default:
+			return r
+		}
+	}, s)
+}
+
+func isAriaHiddenWithSubstantialContent(node *html.Node) bool {
+	if node == nil || node.Type != html.ElementNode {
+		return false
+	}
+
+	for _, attr := range node.Attr {
+		if strings.ToLower(attr.Key) == "aria-hidden" && strings.EqualFold(strings.TrimSpace(attr.Val), "true") {
+			return descendantTextLength(node) > 20
+		}
+	}
+
+	return false
+}
+
+func isCollapsedDetailsWithSubstantialContent(node *html.Node) bool {
+	if node == nil || node.Type != html.ElementNode || !strings.EqualFold(node.Data, "details") {
+		return false
+	}
+
+	for _, attr := range node.Attr {
+		if strings.EqualFold(attr.Key, "open") {
+			return false
+		}
+	}
+
+	return descendantTextLength(node) > 20
+}
+
+func descendantTextLength(node *html.Node) int {
+	if node == nil {
+		return 0
+	}
+
+	total := 0
+	var walk func(*html.Node)
+	walk = func(n *html.Node) {
+		if n == nil {
+			return
+		}
+		if n.Type == html.ElementNode && isIgnoredElement(strings.ToLower(n.Data)) {
+			return
+		}
+		if n.Type == html.TextNode {
+			text := normalizeExtractedText(n.Data)
+			if text != "" {
+				total += len([]rune(text))
+			}
+		}
+		for child := n.FirstChild; child != nil; child = child.NextSibling {
+			walk(child)
+		}
+	}
+
+	walk(node)
+	return total
+}
+
+func styleHasColorCamouflage(compact string) bool {
+	fg := stylePropertyValue(compact, styleColorPattern)
+	bg := stylePropertyValue(compact, styleBackgroundPattern)
+	if fg == "" || bg == "" {
+		return false
+	}
+
+	fgNorm := normalizeColorToken(fg)
+	bgNorm := normalizeColorToken(bg)
+	if fgNorm == "" || bgNorm == "" {
+		return false
+	}
+
+	return fgNorm == bgNorm
+}
+
+func stylePropertyValue(style string, pattern *regexp.Regexp) string {
+	m := pattern.FindStringSubmatch(style)
+	if len(m) < 2 {
+		return ""
+	}
+	return strings.TrimSpace(m[1])
+}
+
+func normalizeColorToken(v string) string {
+	value := strings.ToLower(strings.TrimSpace(v))
+	if value == "" {
+		return ""
+	}
+
+	if value == "white" || value == "#fff" || value == "#ffffff" || value == "rgb(255,255,255)" {
+		return "white"
+	}
+	if value == "black" || value == "#000" || value == "#000000" || value == "rgb(0,0,0)" {
+		return "black"
+	}
+
+	return ""
 }

@@ -16,6 +16,9 @@ type normalizer struct{}
 type normalizationSignals struct {
 	HiddenInstructionLikeHTML    bool
 	InstructionLikeAttributeText bool
+	HasZeroWidthInjection        bool
+	HasAriaHiddenContent         bool
+	HasCollapsedDetailsContent   bool
 }
 
 func newNormalizer() *normalizer {
@@ -54,6 +57,9 @@ func (n *normalizer) NormalizeWithSignals(text string) (string, normalizationSig
 			}
 			signals.HiddenInstructionLikeHTML = htmlSignals.HiddenInstructionLikeHTML
 			signals.InstructionLikeAttributeText = htmlSignals.InstructionLikeAttributeText
+			signals.HasZeroWidthInjection = htmlSignals.HasZeroWidthInjection
+			signals.HasAriaHiddenContent = htmlSignals.HasAriaHiddenContent
+			signals.HasCollapsedDetailsContent = htmlSignals.HasCollapsedDetailsContent
 		}
 	}
 
