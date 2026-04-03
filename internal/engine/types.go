@@ -34,3 +34,10 @@ var (
 	ShouldBlock     = types.ShouldBlock
 	SafeResult      = types.SafeResult
 )
+
+// assessmentContext carries internal score composition for debias decisions.
+type assessmentContext struct {
+	TriggerOnlyScore  int
+	InjectionScore    int
+	DebiasExplanation string
+}

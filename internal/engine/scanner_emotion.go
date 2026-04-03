@@ -28,7 +28,7 @@ const (
 	emotionAuthorityInjectionWeight = 15
 	emotionScoreDivisor             = 100.0
 	emotionScoreClampMax            = 1.0
-	emotionActivationThreshold      = 0.10
+	emotionActivationThreshold      = 0.05
 )
 
 const (

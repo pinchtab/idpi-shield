@@ -102,6 +102,11 @@ type RiskResult struct {
 	// Categories lists the unique threat categories detected.
 	Categories []string `json:"categories"`
 
+	// OverDefenseRisk estimates the probability this result is a false positive.
+	// Range 0.0 to 1.0. Higher values suggest the score may be inflated by
+	// trigger words appearing in benign context.
+	OverDefenseRisk float64 `json:"over_defense_risk"`
+
 	// Intent classifies the primary attacker goal. Empty when no threat is detected.
 	Intent Intent `json:"intent,omitempty"`
 }
@@ -138,11 +143,12 @@ func ShouldBlock(score int, strict bool, customThreshold ...int) bool {
 // SafeResult returns a clean RiskResult with no threats detected.
 func SafeResult() RiskResult {
 	return RiskResult{
-		Score:      0,
-		Level:      "safe",
-		Blocked:    false,
-		Reason:     "No threats detected",
-		Patterns:   []string{},
-		Categories: []string{},
+		Score:           0,
+		Level:           "safe",
+		Blocked:         false,
+		Reason:          "No threats detected",
+		Patterns:        []string{},
+		Categories:      []string{},
+		OverDefenseRisk: 0,
 	}
 }

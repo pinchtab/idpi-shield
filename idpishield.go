@@ -112,6 +112,10 @@ type Config struct {
 	// MaxDecodedVariants bounds how many decoded variants are scanned.
 	// If <= 0, a safe default limit is used.
 	MaxDecodedVariants int
+
+	// DebiasTriggers enables the trigger-word debias layer to reduce
+	// false positives on benign content containing security-adjacent words.
+	DebiasTriggers bool
 }
 
 // Shield is the main entry point for idpishield analysis.
@@ -205,5 +209,6 @@ func toEngineCfg(cfg Config) engine.Config {
 		MaxInputBytes:                  cfg.MaxInputBytes,
 		MaxDecodeDepth:                 cfg.MaxDecodeDepth,
 		MaxDecodedVariants:             cfg.MaxDecodedVariants,
+		DebiasTriggers:                 cfg.DebiasTriggers,
 	}
 }
