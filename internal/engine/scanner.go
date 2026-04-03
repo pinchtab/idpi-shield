@@ -73,9 +73,49 @@ var severityWeight = [6]int{0, 10, 15, 25, 35, 45}
 
 const hiddenInstructionLikeScoreBoostBase = 25
 const hiddenInstructionLikeHTMLScoreBoost = 20
+const zeroWidthInjectionStandaloneScoreBoost = 10
+const zeroWidthInjectionInstructionScoreBoost = 20
+const ariaHiddenInstructionScoreBoost = 15
+const collapsedDetailsInstructionScoreBoost = 10
 const attributeInstructionLikeScoreBoostBase = 30
 const attributeInstructionLikeScoreBoost = 15
 const attributeInstructionLikeMinScore = 70
+const secretsHighScoreBoost = 25
+const secretsMediumScoreBoost = 15
+const secretsLowScoreBoost = 10
+const secretsMaxScoreBoost = 35
+const gibberishWithInjectionScoreBoost = 20
+const gibberishStandaloneScoreBoost = 5
+const entropyBlockWithInjectionScoreBoost = 15
+const toxicityWithInjectionScoreBoost = 18
+const toxicityStandaloneScoreBoost = 8
+const toxicityTier1ScoreBoost = 20
+const toxicityMaxScoreBoost = 30
+const emotionStandaloneScoreBoost = 8
+const emotionMaxScoreBoost = 35
+
+const categorySecrets = "secrets"
+const categoryGibberish = "gibberish"
+const categoryToxicity = "toxicity"
+const categoryEmotionalManipulation = "emotional-manipulation"
+
+const (
+	contextPenaltyDocMarker            = 10
+	contextPenaltyCodeMarker           = 10
+	contextPenaltyLegitimateMarker     = 5
+	contextPenaltyAttributeMarker      = 5
+	contextPenaltyMax                  = 20
+	contextPenaltyMinFinalScore        = 0
+	computeScoreExtraMatchCap          = 3
+	computeScoreSameCategoryDivisor    = 5
+	computeScoreCrossCategoryBoost     = 15
+	computeScoreOverrideExfilBonus     = 20
+	computeScoreJailbreakOverrideBonus = 15
+	computeScoreRoleExfilBonus         = 15
+	computeScoreAgentExfilBonus        = 20
+	computeScoreAgentDestructBonus     = 20
+	computeScoreMax                    = 100
+)
 
 // categoryInfo tracks pattern match statistics per category.
 type categoryInfo struct {
@@ -116,7 +156,7 @@ func applyContextPenalties(score int, text string, matches []match) int {
 
 	for _, marker := range docMarkers {
 		if strings.Contains(lowerText, marker) {
-			penalty += 10
+			penalty += contextPenaltyDocMarker
 			break
 		}
 	}
@@ -138,7 +178,7 @@ func applyContextPenalties(score int, text string, matches []match) int {
 
 	for _, marker := range codeMarkers {
 		if strings.Contains(lowerText, marker) {
-			penalty += 10
+			penalty += contextPenaltyCodeMarker
 			break
 		}
 	}
@@ -155,24 +195,24 @@ func applyContextPenalties(score int, text string, matches []match) int {
 
 	for _, marker := range legitimateMarkers {
 		if strings.Contains(lowerText, marker) {
-			penalty += 5
+			penalty += contextPenaltyLegitimateMarker
 			break
 		}
 	}
 
 	// Check if the entire text looks like HTML attributes (e.g., aria-hidden)
 	if strings.Contains(text, "aria-") || strings.Contains(text, "data-") {
-		penalty += 5
+		penalty += contextPenaltyAttributeMarker
 	}
 
-	if penalty > 20 {
-		penalty = 20
+	if penalty > contextPenaltyMax {
+		penalty = contextPenaltyMax
 	}
 
 	// Apply penalty but don't go below 0
 	finalScore := score - penalty
-	if finalScore < 0 {
-		finalScore = 0
+	if finalScore < contextPenaltyMinFinalScore {
+		finalScore = contextPenaltyMinFinalScore
 	}
 
 	return finalScore
@@ -261,12 +301,12 @@ func computeScore(matches []match) int {
 	for _, info := range cats {
 		primary := severityWeight[info.maxSeverity]
 		extra := info.matchCount - 1
-		if extra > 3 {
-			extra = 3
+		if extra > computeScoreExtraMatchCap {
+			extra = computeScoreExtraMatchCap
 		}
 		bonus := 0
 		if primary > 0 {
-			bonus = extra * (primary / 5)
+			bonus = extra * (primary / computeScoreSameCategoryDivisor)
 		}
 		score += primary + bonus
 	}
@@ -274,7 +314,7 @@ func computeScore(matches []match) int {
 	// Cross-category amplification
 	numCategories := len(cats)
 	if numCategories > 1 {
-		score += (numCategories - 1) * 15
+		score += (numCategories - 1) * computeScoreCrossCategoryBoost
 	}
 
 	// Dangerous combination bonuses (known attack chains)
@@ -284,23 +324,23 @@ func computeScore(matches []match) int {
 	}
 
 	if hasCategory(patterns.CategoryInstructionOverride) && hasCategory(patterns.CategoryExfiltration) {
-		score += 20 // classic: override instructions then steal data
+		score += computeScoreOverrideExfilBonus // classic: override instructions then steal data
 	}
 	if hasCategory(patterns.CategoryJailbreak) && hasCategory(patterns.CategoryInstructionOverride) {
-		score += 15 // jailbreak + override = strong signal
+		score += computeScoreJailbreakOverrideBonus // jailbreak + override = strong signal
 	}
 	if hasCategory(patterns.CategoryRoleHijack) && hasCategory(patterns.CategoryExfiltration) {
-		score += 15 // hijack role then exfiltrate data
+		score += computeScoreRoleExfilBonus // hijack role then exfiltrate data
 	}
 	if hasCategory(patterns.CategoryAgentHijacking) && hasCategory(patterns.CategoryExfiltration) {
-		score += 20 // hijack agent workflow then steal data
+		score += computeScoreAgentExfilBonus // hijack agent workflow then steal data
 	}
 	if hasCategory(patterns.CategoryAgentHijacking) && hasCategory(patterns.CategoryDataDestruction) {
-		score += 20 // hijack agent then destroy data
+		score += computeScoreAgentDestructBonus // hijack agent then destroy data
 	}
 
-	if score > 100 {
-		score = 100
+	if score > computeScoreMax {
+		score = computeScoreMax
 	}
 	return score
 }
@@ -313,7 +353,13 @@ func buildResult(matches []match, text string, strict bool, blockThreshold ...in
 
 // buildResultWithSignals is buildResult plus optional normalization signals.
 func buildResultWithSignals(matches []match, text string, signals normalizationSignals, strict bool, blockThreshold ...int) RiskResult {
-	if len(matches) == 0 {
+	secrets := scanSecrets(text)
+	gibberish := scanGibberish(text)
+	toxicity := scanToxicity(text)
+	emotion := scanEmotion(text)
+	containsInjectionKeywords := containsInjectionLikeKeywords(text)
+
+	if len(matches) == 0 && !secrets.HasSecrets && !gibberish.IsGibberish && !gibberish.HasHighEntropyBlock && !toxicity.IsToxic && !emotion.HasEmotionalManipulation {
 		return SafeResult()
 	}
 
@@ -322,18 +368,12 @@ func buildResultWithSignals(matches []match, text string, signals normalizationS
 	// Apply context-aware scoring to reduce false positives
 	score = applyContextPenalties(score, text, matches)
 
-	if signals.HiddenInstructionLikeHTML && len(matches) > 0 {
-		score += hiddenInstructionLikeScoreBoostBase
-		score += hiddenInstructionLikeHTMLScoreBoost
-	}
-
-	if signals.InstructionLikeAttributeText && len(matches) > 0 {
-		score += attributeInstructionLikeScoreBoostBase
-		score += attributeInstructionLikeScoreBoost
-		if score < attributeInstructionLikeMinScore {
-			score = attributeInstructionLikeMinScore
-		}
-	}
+	score += computeSignalBoost(signals, len(matches) > 0)
+	score += computeSecretsContribution(secrets)
+	score += computeGibberishContribution(gibberish, containsInjectionKeywords)
+	score += computeToxicityContribution(toxicity, containsInjectionKeywords)
+	score += computeEmotionContribution(emotion, containsInjectionKeywords)
+	score = applyAttributeInstructionScoreFloor(score, signals, len(matches) > 0)
 
 	if score > 100 {
 		score = 100
@@ -347,12 +387,14 @@ func buildResultWithSignals(matches []match, text string, signals normalizationS
 	for _, m := range matches {
 		patternIDs = append(patternIDs, m.PatternID)
 	}
+	patternIDs = appendSyntheticPatternIDs(patternIDs, secrets, gibberish, toxicity, emotion)
 
 	// Collect unique categories
 	catSet := make(map[string]bool)
 	for _, m := range matches {
 		catSet[m.Category] = true
 	}
+	appendScannerCategories(catSet, secrets, gibberish, toxicity, emotion)
 	categories := make([]string, 0, len(catSet))
 	for c := range catSet {
 		categories = append(categories, c)
@@ -360,11 +402,24 @@ func buildResultWithSignals(matches []match, text string, signals normalizationS
 	sort.Strings(categories) // deterministic output
 
 	reason := buildReason(matches, catSet)
+	reason = appendScannerReasons(reason, secrets, gibberish, toxicity, emotion)
 	if signals.HiddenInstructionLikeHTML && len(matches) > 0 {
-		reason += "; hidden HTML injection detected"
+		reason = appendReason(reason, "hidden HTML injection detected")
+	}
+	if signals.HasZeroWidthInjection && len(matches) > 0 {
+		reason = appendReason(reason, "zero-width injection detected")
+	}
+	if signals.HiddenInstructionLikeHTML && signals.HasAriaHiddenContent && len(matches) > 0 {
+		reason = appendReason(reason, "aria-hidden content abuse detected")
+	}
+	if signals.HiddenInstructionLikeHTML && signals.HasCollapsedDetailsContent && len(matches) > 0 {
+		reason = appendReason(reason, "collapsed details injection detected")
 	}
 	if signals.InstructionLikeAttributeText && len(matches) > 0 {
-		reason += "; attribute-based injection detected"
+		reason = appendReason(reason, "attribute-based injection detected")
+	}
+	if strings.TrimSpace(reason) == "" {
+		reason = "No threats detected"
 	}
 
 	return RiskResult{
@@ -376,6 +431,231 @@ func buildResultWithSignals(matches []match, text string, signals normalizationS
 		Categories: categories,
 		Intent:     deriveIntent(categories),
 	}
+}
+
+func computeSignalBoost(signals normalizationSignals, hasMatches bool) int {
+	if !hasMatches {
+		return 0
+	}
+
+	boost := 0
+	if signals.HiddenInstructionLikeHTML {
+		boost += hiddenInstructionLikeScoreBoostBase
+		boost += hiddenInstructionLikeHTMLScoreBoost
+	}
+	if signals.HasZeroWidthInjection {
+		if signals.HiddenInstructionLikeHTML {
+			boost += zeroWidthInjectionInstructionScoreBoost
+		} else {
+			boost += zeroWidthInjectionStandaloneScoreBoost
+		}
+	}
+	if signals.HiddenInstructionLikeHTML && signals.HasAriaHiddenContent {
+		boost += ariaHiddenInstructionScoreBoost
+	}
+	if signals.HiddenInstructionLikeHTML && signals.HasCollapsedDetailsContent {
+		boost += collapsedDetailsInstructionScoreBoost
+	}
+
+	return boost
+}
+
+func applyAttributeInstructionScoreFloor(score int, signals normalizationSignals, hasMatches bool) int {
+	if !signals.InstructionLikeAttributeText || !hasMatches {
+		return score
+	}
+
+	score += attributeInstructionLikeScoreBoostBase
+	score += attributeInstructionLikeScoreBoost
+	if score < attributeInstructionLikeMinScore {
+		score = attributeInstructionLikeMinScore
+	}
+
+	return score
+}
+
+func computeSecretsContribution(secrets secretsResult) int {
+	if !secrets.HasSecrets {
+		return 0
+	}
+
+	contribution := 0
+	switch secrets.Confidence {
+	case "high":
+		contribution = secretsHighScoreBoost
+	case "medium":
+		contribution = secretsMediumScoreBoost
+	default:
+		contribution = secretsLowScoreBoost
+	}
+	if contribution > secretsMaxScoreBoost {
+		contribution = secretsMaxScoreBoost
+	}
+
+	return contribution
+}
+
+func computeGibberishContribution(gibberish gibberishResult, containsInjectionKeywords bool) int {
+	if containsInjectionKeywords {
+		contribution := 0
+		if gibberish.IsGibberish {
+			contribution += gibberishWithInjectionScoreBoost
+		}
+		if gibberish.HasHighEntropyBlock {
+			contribution += entropyBlockWithInjectionScoreBoost
+		}
+		return contribution
+	}
+
+	if gibberish.IsGibberish || gibberish.HasHighEntropyBlock {
+		return gibberishStandaloneScoreBoost
+	}
+
+	return 0
+}
+
+func computeToxicityContribution(toxicity toxicityResult, containsInjectionKeywords bool) int {
+	contribution := 0
+	if toxicity.IsToxic {
+		if containsInjectionKeywords {
+			contribution += toxicityWithInjectionScoreBoost
+		} else {
+			contribution += toxicityStandaloneScoreBoost
+		}
+	}
+	if toxicity.tier1Matched {
+		contribution += toxicityTier1ScoreBoost
+	}
+	if contribution > toxicityMaxScoreBoost {
+		contribution = toxicityMaxScoreBoost
+	}
+
+	return contribution
+}
+
+func computeEmotionContribution(emotion emotionResult, containsInjectionKeywords bool) int {
+	contribution := 0
+	if emotion.HasEmotionalManipulation {
+		if containsInjectionKeywords {
+			contribution += emotion.injectionWeighted
+		} else {
+			contribution += emotionStandaloneScoreBoost
+		}
+	}
+	if contribution > emotionMaxScoreBoost {
+		contribution = emotionMaxScoreBoost
+	}
+
+	return contribution
+}
+
+func appendSyntheticPatternIDs(patternIDs []string, secrets secretsResult, gibberish gibberishResult, toxicity toxicityResult, emotion emotionResult) []string {
+	if secrets.HasSecrets {
+		for _, typ := range secrets.MatchedTypes {
+			patternIDs = append(patternIDs, "secret-"+typ)
+		}
+	}
+	if gibberish.IsGibberish {
+		patternIDs = append(patternIDs, "gibberish-pattern")
+	}
+	if gibberish.HasHighEntropyBlock {
+		patternIDs = append(patternIDs, "gibberish-high-entropy-block")
+	}
+	if toxicity.tier1Matched {
+		patternIDs = append(patternIDs, "tx-001")
+	}
+	if toxicity.tier2Matched {
+		patternIDs = append(patternIDs, "tx-002")
+	}
+	if toxicity.tier3Matched {
+		patternIDs = append(patternIDs, "tx-003")
+	}
+	if emotion.urgencyMatched {
+		patternIDs = append(patternIDs, "em-001")
+	}
+	if emotion.fearMatched {
+		patternIDs = append(patternIDs, "em-002")
+	}
+	if emotion.guiltMatched {
+		patternIDs = append(patternIDs, "em-003")
+	}
+	if emotion.flatteryMatched {
+		patternIDs = append(patternIDs, "em-004")
+	}
+	if emotion.falseAuthorityMatched {
+		patternIDs = append(patternIDs, "em-005")
+	}
+
+	return patternIDs
+}
+
+func appendScannerCategories(catSet map[string]bool, secrets secretsResult, gibberish gibberishResult, toxicity toxicityResult, emotion emotionResult) {
+	if secrets.HasSecrets {
+		catSet[categorySecrets] = true
+	}
+	if gibberish.IsGibberish || gibberish.HasHighEntropyBlock {
+		catSet[categoryGibberish] = true
+	}
+	if toxicity.IsToxic {
+		catSet[categoryToxicity] = true
+	}
+	if emotion.HasEmotionalManipulation {
+		catSet[categoryEmotionalManipulation] = true
+	}
+}
+
+func appendScannerReasons(reason string, secrets secretsResult, gibberish gibberishResult, toxicity toxicityResult, emotion emotionResult) string {
+	if secrets.HasSecrets {
+		reason = appendReason(reason, "credential pattern detected")
+	}
+	if gibberish.IsGibberish {
+		reason = appendReason(reason, "gibberish text pattern detected")
+	}
+	if gibberish.HasHighEntropyBlock {
+		reason = appendReason(reason, "high entropy block detected")
+	}
+	if toxicity.IsToxic {
+		reason = appendReason(reason, buildToxicityReasonDetail(toxicity.MatchedTiers))
+	}
+	if emotion.HasEmotionalManipulation {
+		reason = appendReason(reason, "emotional manipulation tactic detected: "+strings.Join(emotion.EmotionTypes, ", "))
+	}
+
+	return reason
+}
+
+func buildToxicityReasonDetail(matchedTiers []string) string {
+	tierLabels := map[string]string{
+		"tier-1": "tier-1: coercion",
+		"tier-2": "tier-2: identity-override",
+		"tier-3": "tier-3: hostile",
+	}
+	parts := make([]string, 0, len(matchedTiers))
+	for _, tier := range matchedTiers {
+		if label, ok := tierLabels[tier]; ok {
+			parts = append(parts, label)
+		} else {
+			parts = append(parts, tier)
+		}
+	}
+	reasonDetail := "manipulative or threatening language detected"
+	if len(parts) > 0 {
+		reasonDetail += " (" + strings.Join(parts, ", ") + ")"
+	}
+
+	return reasonDetail
+}
+
+func appendReason(base, part string) string {
+	base = strings.TrimSpace(base)
+	part = strings.TrimSpace(part)
+	if part == "" {
+		return base
+	}
+	if base == "" || base == "No threats detected" {
+		return part
+	}
+	return base + "; " + part
 }
 
 // deriveIntent maps detected categories to the primary attacker intent.
