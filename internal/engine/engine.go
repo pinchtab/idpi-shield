@@ -23,6 +23,7 @@ type Config struct {
 	MaxInputBytes                  int
 	MaxDecodeDepth                 int
 	MaxDecodedVariants             int
+	DebiasTriggers                 *bool
 }
 
 // Engine is the core analysis engine.
@@ -39,6 +40,16 @@ type Engine struct {
 func New(cfg Config) *Engine {
 	if cfg.Mode == "" {
 		cfg.Mode = ModeBalanced
+	}
+	if cfg.DebiasTriggers == nil {
+		switch cfg.Mode {
+		case ModeBalanced, ModeFast:
+			t := true
+			cfg.DebiasTriggers = &t
+		default:
+			f := false
+			cfg.DebiasTriggers = &f
+		}
 	}
 
 	e := &Engine{
@@ -95,7 +106,7 @@ func (e *Engine) AssessContext(ctx context.Context, text, sourceURL string) Risk
 	}
 
 	matches := e.scanner.scan(analysisText, e.cfg.MaxDecodeDepth, e.cfg.MaxDecodedVariants)
-	result := buildResultWithSignals(matches, analysisText, normSignals, e.cfg.StrictMode, e.cfg.BlockThreshold)
+	result := buildResultWithSignalsWithDebias(matches, analysisText, normSignals, e.cfg.DebiasTriggers != nil && *e.cfg.DebiasTriggers, e.cfg.StrictMode, e.cfg.BlockThreshold)
 
 	if e.cfg.Mode == ModeDeep && e.service != nil && result.Score >= ThresholdEscalation {
 		serviceResult, err := e.service.assess(ctx, boundedText, sourceURL, e.cfg.Mode.String())
@@ -196,6 +207,9 @@ func MergeRiskResults(primary, secondary RiskResult) RiskResult {
 
 	if secondary.Score > merged.Score {
 		merged.Score = secondary.Score
+	}
+	if secondary.OverDefenseRisk > merged.OverDefenseRisk {
+		merged.OverDefenseRisk = secondary.OverDefenseRisk
 	}
 	merged.Level = ScoreToLevel(merged.Score)
 	merged.Blocked = merged.Blocked || secondary.Blocked

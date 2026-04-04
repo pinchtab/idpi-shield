@@ -28,7 +28,11 @@ const (
 	emotionAuthorityInjectionWeight = 15
 	emotionScoreDivisor             = 100.0
 	emotionScoreClampMax            = 1.0
-	emotionActivationThreshold      = 0.10
+	// emotionActivationThreshold is the minimum ManipulationScore required
+	// to flag content as emotionally manipulative. Keep at 0.10 to avoid
+	// firing on single benign phrase matches (e.g. "act now" in an ad).
+	// Do not lower this threshold to compensate for debias behavior.
+	emotionActivationThreshold = 0.10
 )
 
 const (
