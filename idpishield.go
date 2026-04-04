@@ -115,7 +115,9 @@ type Config struct {
 
 	// DebiasTriggers enables the trigger-word debias layer to reduce
 	// false positives on benign content containing security-adjacent words.
-	DebiasTriggers bool
+	// When nil (not set), defaults to true for ModeBalanced and ModeFast,
+	// and false for ModeDeep. Set explicitly to override mode defaults.
+	DebiasTriggers *bool
 }
 
 // Shield is the main entry point for idpishield analysis.
@@ -130,6 +132,10 @@ func New(cfg Config) *Shield {
 		engine: engine.New(toEngineCfg(cfg)),
 	}
 }
+
+// BoolPtr returns a pointer to a bool value.
+// Use with Config.DebiasTriggers to explicitly set the flag.
+func BoolPtr(b bool) *bool { return &b }
 
 // Assess analyzes text for indirect prompt injection threats.
 // Returns a RiskResult with score, severity level, and matched patterns.

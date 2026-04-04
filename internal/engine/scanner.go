@@ -503,10 +503,18 @@ func hasStrongInjectionPattern(matches []match) bool {
 		patterns.CategoryDataDestruction:     {},
 		patterns.CategoryTransactionCoercion: {},
 		patterns.CategoryAgentHijacking:      {},
+		patterns.CategoryInstructionOverride: {},
+		patterns.CategoryJailbreak:           {},
+		patterns.CategoryRoleHijack:          {},
+		patterns.CategoryIndirectCommand:     {},
+		patterns.CategoryStructuralInjection: {},
+		patterns.CategorySocialEngineering:   {},
+		patterns.CategoryOutputSteering:      {},
+		patterns.CategoryResourceExhaustion:  {},
 	}
 
 	for _, m := range matches {
-		if m.Severity >= 5 {
+		if m.Severity >= 3 {
 			return true
 		}
 		if _, ok := highSignalCategories[m.Category]; ok {

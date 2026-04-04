@@ -102,9 +102,10 @@ type RiskResult struct {
 	// Categories lists the unique threat categories detected.
 	Categories []string `json:"categories"`
 
-	// OverDefenseRisk estimates the probability this result is a false positive.
-	// Range 0.0 to 1.0. Higher values suggest the score may be inflated by
-	// trigger words appearing in benign context.
+	// OverDefenseRisk is a heuristic score indicating possible
+	// false-positive risk. Range 0.0 to 1.0. Higher values suggest
+	// the score may be inflated by trigger words appearing in benign
+	// context rather than representing a calibrated probability.
 	OverDefenseRisk float64 `json:"over_defense_risk"`
 
 	// Intent classifies the primary attacker goal. Empty when no threat is detected.

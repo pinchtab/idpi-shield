@@ -31,8 +31,9 @@ const debiasWeakPenaltyMax = 15
 const debiasStrongPenaltyMax = 25
 const debiasDumbBotPenalty = 15
 const debiasSpamPenalty = 10
-const debiasDocumentationExtraPenalty = 10
-const debiasDeveloperExtraPenalty = 5
+const debiasDocPenalty = 10
+const debiasDevPenalty = 5
+const debiasPayloadPenaltyCap = 30
 const debiasOverDefenseDivisor = 30.0
 
 const contextScoreMax = 100
@@ -55,7 +56,7 @@ const contextScoreScaleLowPercent = 30
 const payloadDumbBotMaxLength = 300
 const payloadDumbBotKeywordMin = 2
 const payloadSpamKeywordMin = 1
-const payloadDocumentationKeywordMin = 3
+const payloadDocumentationKeywordMin = 2
 
 const contextScoreLongContentPoints = 15
 const contextScoreModerateContentPoints = 10
@@ -88,23 +89,39 @@ var (
 
 // applyDebiasAdjustment reduces weak trigger-only scores in benign-looking context.
 func applyDebiasAdjustment(text string, score int, result assessmentContext) (int, string) {
-	ptype := classifyPayloadType(text)
+	types := classifyPayloadTypes(text)
+	totalPayloadPenalty := 0
+	for _, pt := range types {
+		switch pt {
+		case payloadTypeAttack:
+			return maxInt(score, 0), "debias: attack payload, no debias applied"
+		case payloadTypeDumbBot:
+			totalPayloadPenalty += debiasDumbBotPenalty
+		case payloadTypeSpam:
+			totalPayloadPenalty += debiasSpamPenalty
+		case payloadTypeDocumentation:
+			totalPayloadPenalty += debiasDocPenalty
+		case payloadTypeDeveloper:
+			totalPayloadPenalty += debiasDevPenalty
+		}
+	}
+	if totalPayloadPenalty > debiasPayloadPenaltyCap {
+		totalPayloadPenalty = debiasPayloadPenaltyCap
+	}
 
-	switch ptype {
-	case payloadTypeAttack:
-		return maxInt(score, 0), "debias: no debias applied, injection signal present"
-	case payloadTypeDumbBot:
-		penalty := minInt(score, debiasDumbBotPenalty)
-		return maxInt(score-penalty, 0), "debias: dumb-bot payload detected (-15)"
-	case payloadTypeSpam:
-		penalty := minInt(score, debiasSpamPenalty)
-		return maxInt(score-penalty, 0), "debias: spam payload detected (-10)"
+	adjustedScore := score
+	if totalPayloadPenalty > 0 {
+		appliedPayloadPenalty := minInt(totalPayloadPenalty, adjustedScore)
+		adjustedScore = maxInt(adjustedScore-appliedPayloadPenalty, 0)
 	}
 
 	if result.TriggerOnlyScore <= 0 {
-		return maxInt(score, 0), "debias: no debias applied, no trigger-only signal"
+		return maxInt(adjustedScore, 0), "debias: no debias applied, no trigger-only signal"
 	}
 	if result.InjectionScore > 0 {
+		if adjustedScore < score {
+			return maxInt(adjustedScore, 0), "debias: payload-type reduction only, injection signal present"
+		}
 		return maxInt(score, 0), "debias: no debias applied, injection signal present"
 	}
 
@@ -116,50 +133,51 @@ func applyDebiasAdjustment(text string, score int, result assessmentContext) (in
 	basePenalty := minInt(result.TriggerOnlyScore, penaltyCap)
 	scaledPenalty := scaleDebiasPenalty(basePenalty, contextScore)
 
-	additionalPenalty := 0
-	if ptype == payloadTypeDocumentation {
-		additionalPenalty = debiasDocumentationExtraPenalty
-	}
-	if ptype == payloadTypeDeveloper {
-		additionalPenalty = debiasDeveloperExtraPenalty
-	}
-
-	totalPenalty := scaledPenalty + additionalPenalty
+	// TODO: In a future version, consider weighted combination of payload
+	// types rather than additive penalties to better handle edge cases
+	// where many types apply simultaneously.
+	totalPenalty := scaledPenalty
 	if totalPenalty <= 0 {
-		return maxInt(score, 0), "debias: no debias applied, suspicious context"
+		return maxInt(adjustedScore, 0), "debias: no debias applied, suspicious context"
 	}
 
-	totalPenalty = minInt(totalPenalty, score)
-	return maxInt(score-totalPenalty, 0), buildDebiasExplanation(ptype, totalPenalty)
+	totalPenalty = minInt(totalPenalty, adjustedScore)
+	finalScore := maxInt(adjustedScore-totalPenalty, 0)
+	return finalScore, buildDebiasExplanation(types, totalPayloadPenalty, totalPenalty)
 }
 
-// classifyPayloadType categorizes payloads for debias strategy selection.
-func classifyPayloadType(text string) payloadType {
+// classifyPayloadTypes categorizes payloads for debias strategy selection.
+func classifyPayloadTypes(text string) []payloadType {
 	lower := strings.ToLower(text)
 	hasInjectionKeywords := containsInjectionLikeKeywords(lower)
 	hasRoleOverride := containsAny(lower, payloadRoleOverridePhrases)
 
 	if hasInjectionKeywords && (hasRoleOverride || containsAny(lower, payloadExfiltrationPhrases) || containsAny(lower, payloadJailbreakPhrases)) {
-		return payloadTypeAttack
+		return []payloadType{payloadTypeAttack}
+	}
+	types := make([]payloadType, 0, 4)
+
+	if isDumbBotPayload(lower, hasInjectionKeywords, hasRoleOverride) {
+		types = append(types, payloadTypeDumbBot)
 	}
 
 	if isSpamPayload(lower, hasInjectionKeywords) {
-		return payloadTypeSpam
-	}
-
-	if isDumbBotPayload(lower, hasInjectionKeywords, hasRoleOverride) {
-		return payloadTypeDumbBot
+		types = append(types, payloadTypeSpam)
 	}
 
 	if isDocumentationPayload(lower) {
-		return payloadTypeDocumentation
+		types = append(types, payloadTypeDocumentation)
 	}
 
 	if isDeveloperPayload(lower) {
-		return payloadTypeDeveloper
+		types = append(types, payloadTypeDeveloper)
 	}
 
-	return payloadTypeUnknown
+	if len(types) == 0 {
+		return []payloadType{payloadTypeUnknown}
+	}
+
+	return types
 }
 
 // isDumbBotPayload checks whether text matches dumb-bot heuristics.
@@ -284,41 +302,38 @@ func scalePercent(value, percent int) int {
 }
 
 // buildDebiasExplanation returns a debug-friendly explanation string.
-func buildDebiasExplanation(ptype payloadType, penalty int) string {
-	switch ptype {
-	case payloadTypeDocumentation:
-		return "debias: documentation context, trigger-only signals (-" + intToString(penalty) + ")"
-	case payloadTypeDeveloper:
-		return "debias: developer context, trigger-only signals (-" + intToString(penalty) + ")"
-	default:
-		return "debias: trigger-only signals reduced (-" + intToString(penalty) + ")"
+func buildDebiasExplanation(types []payloadType, payloadPenalty, contextPenalty int) string {
+	totalPenalty := payloadPenalty + contextPenalty
+	if totalPenalty <= 0 {
+		return "debias: no debias applied"
 	}
+	if hasPayloadType(types, payloadTypeDocumentation) {
+		return "debias: documentation context, trigger-only signals (-" + intToString(totalPenalty) + ")"
+	}
+	if hasPayloadType(types, payloadTypeDeveloper) {
+		return "debias: developer context, trigger-only signals (-" + intToString(totalPenalty) + ")"
+	}
+	if hasPayloadType(types, payloadTypeDumbBot) {
+		return "debias: dumb-bot payload detected (-" + intToString(totalPenalty) + ")"
+	}
+	if hasPayloadType(types, payloadTypeSpam) {
+		return "debias: spam payload detected (-" + intToString(totalPenalty) + ")"
+	}
+	return "debias: trigger-only signals reduced (-" + intToString(totalPenalty) + ")"
 }
 
-// containsURLLike reports whether text includes a simple URL/domain indicator.
-func containsURLLike(lower string) bool {
-	return strings.Contains(lower, "http://") || strings.Contains(lower, "https://") || strings.Contains(lower, ".com") || strings.Contains(lower, ".net") || strings.Contains(lower, ".org")
-}
-
-// containsAny reports whether any term appears in the given text.
-func containsAny(text string, terms []string) bool {
-	for _, term := range terms {
-		if strings.Contains(text, term) {
+func hasPayloadType(types []payloadType, want payloadType) bool {
+	for _, pt := range types {
+		if pt == want {
 			return true
 		}
 	}
 	return false
 }
 
-// countContains counts how many terms appear at least once in text.
-func countContains(text string, terms []string) int {
-	count := 0
-	for _, term := range terms {
-		if strings.Contains(text, term) {
-			count++
-		}
-	}
-	return count
+// containsURLLike reports whether text includes a simple URL/domain indicator.
+func containsURLLike(lower string) bool {
+	return strings.Contains(lower, "http://") || strings.Contains(lower, "https://") || strings.Contains(lower, ".com") || strings.Contains(lower, ".net") || strings.Contains(lower, ".org")
 }
 
 // countContainsWord counts word-like tokens with basic boundary checks.

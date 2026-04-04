@@ -89,7 +89,7 @@ func main() {
 
 func runTestOverDefense(w io.Writer) bool {
 	const threshold = 40
-	shield := idpi.New(idpi.Config{Mode: idpi.ModeBalanced, DebiasTriggers: true})
+	shield := idpi.New(idpi.Config{Mode: idpi.ModeBalanced, DebiasTriggers: idpi.BoolPtr(true)})
 	passed := 0
 	var writeErr error
 
