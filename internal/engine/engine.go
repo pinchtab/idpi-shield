@@ -5,6 +5,7 @@ package engine
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -24,16 +25,23 @@ type Config struct {
 	MaxDecodeDepth                 int
 	MaxDecodedVariants             int
 	DebiasTriggers                 *bool
+	BanSubstrings                  []string
+	BanTopics                      []string
+	BanCompetitors                 []string
+	CustomRegex                    []string
+	ConfigFile                     string
 }
 
 // Engine is the core analysis engine.
 // Safe for concurrent use by multiple goroutines.
 type Engine struct {
-	cfg        Config
-	scanner    *scanner
-	normalizer *normalizer
-	domain     *domainChecker
-	service    *serviceClient
+	cfg              Config
+	scanner          *scanner
+	normalizer       *normalizer
+	domain           *domainChecker
+	service          *serviceClient
+	compiledBanRegex []*regexp.Regexp
+	banListCfg       banListConfig
 }
 
 // New creates a new Engine with the given configuration.
@@ -53,10 +61,21 @@ func New(cfg Config) *Engine {
 	}
 
 	e := &Engine{
-		cfg:        cfg,
-		scanner:    newScanner(),
-		normalizer: newNormalizer(),
-		domain:     newDomainChecker(cfg.AllowedDomains),
+		cfg:              cfg,
+		scanner:          newScanner(),
+		normalizer:       newNormalizer(),
+		domain:           newDomainChecker(cfg.AllowedDomains),
+		compiledBanRegex: compileCustomRegex(cfg.CustomRegex),
+	}
+	compiledTopics := compileWholeWordRegexes(cfg.BanTopics)
+	compiledCompetitors := compileWholeWordRegexes(cfg.BanCompetitors)
+	e.banListCfg = banListConfig{
+		BanSubstrings:       cfg.BanSubstrings,
+		BanTopics:           cfg.BanTopics,
+		BanCompetitors:      cfg.BanCompetitors,
+		CompiledTopics:      compiledTopics,
+		CompiledCompetitors: compiledCompetitors,
+		CompiledRegex:       e.compiledBanRegex,
 	}
 
 	if cfg.ServiceURL != "" && cfg.Mode == ModeDeep {
@@ -106,7 +125,7 @@ func (e *Engine) AssessContext(ctx context.Context, text, sourceURL string) Risk
 	}
 
 	matches := e.scanner.scan(analysisText, e.cfg.MaxDecodeDepth, e.cfg.MaxDecodedVariants)
-	result := buildResultWithSignalsWithDebias(matches, analysisText, normSignals, e.cfg.DebiasTriggers != nil && *e.cfg.DebiasTriggers, e.cfg.StrictMode, e.cfg.BlockThreshold)
+	result := buildResultWithSignalsWithDebiasAndBan(matches, analysisText, normSignals, e.banListCfg, e.cfg.DebiasTriggers != nil && *e.cfg.DebiasTriggers, e.cfg.StrictMode, e.cfg.BlockThreshold)
 
 	if e.cfg.Mode == ModeDeep && e.service != nil && result.Score >= ThresholdEscalation {
 		serviceResult, err := e.service.assess(ctx, boundedText, sourceURL, e.cfg.Mode.String())
@@ -117,6 +136,52 @@ func (e *Engine) AssessContext(ctx context.Context, text, sourceURL string) Risk
 	}
 
 	return result
+}
+
+func compileCustomRegex(patterns []string) []*regexp.Regexp {
+	compiled := make([]*regexp.Regexp, 0, len(patterns))
+	for _, pattern := range patterns {
+		trimmed := strings.TrimSpace(pattern)
+		if trimmed == "" {
+			continue
+		}
+		re, err := regexp.Compile(trimmed)
+		if err != nil {
+			// Pattern was pre-validated in New() via ValidateCustomRegex.
+			// If we reach here with an invalid pattern it is a logic error;
+			// skip rather than panic to maintain library stability.
+			continue
+		}
+		compiled = append(compiled, re)
+	}
+	return compiled
+}
+
+func compileWholeWordRegexes(terms []string) []*regexp.Regexp {
+	compiled := make([]*regexp.Regexp, 0, len(terms))
+	for _, term := range terms {
+		trimmed := strings.TrimSpace(term)
+		if trimmed == "" {
+			continue
+		}
+		re := regexp.MustCompile(`(?i)\b` + regexp.QuoteMeta(strings.ToLower(trimmed)) + `\b`)
+		compiled = append(compiled, re)
+	}
+	return compiled
+}
+
+// ValidateCustomRegex validates all configured custom regex patterns.
+func ValidateCustomRegex(patterns []string) error {
+	for _, pattern := range patterns {
+		trimmed := strings.TrimSpace(pattern)
+		if trimmed == "" {
+			continue
+		}
+		if _, err := regexp.Compile(trimmed); err != nil {
+			return fmt.Errorf("invalid CustomRegex pattern %q: %w", trimmed, err)
+		}
+	}
+	return nil
 }
 
 // ThresholdEscalation is the score threshold for deep-mode service escalation.
@@ -216,6 +281,7 @@ func MergeRiskResults(primary, secondary RiskResult) RiskResult {
 
 	merged.Patterns = mergeUniqueStrings(merged.Patterns, secondary.Patterns)
 	merged.Categories = mergeUniqueStrings(merged.Categories, secondary.Categories)
+	merged.BanListMatches = mergeUniqueStrings(merged.BanListMatches, secondary.BanListMatches)
 	merged.Reason = mergeReasons(merged.Reason, secondary.Reason)
 
 	return merged
