@@ -44,7 +44,7 @@ var outputPIIPrivateIPPattern = regexp.MustCompile(`\b(?:10|172\.(?:1[6-9]|2[0-9
 var outputPIIPublicIPPattern = regexp.MustCompile(`\b\d{1,3}(?:\.\d{1,3}){3}\b`)
 var outputPIINamePattern = regexp.MustCompile(`\b[A-Z][a-z]+ [A-Z][a-z]+\b`)
 var outputPIISecretAssignmentPattern = regexp.MustCompile(`(?i)\b(?:api[_\-]?key|token|secret|password)\b\s*[:=]\s*\S{8,}`)
-var outputPIISecretPrefixPattern = regexp.MustCompile(`\b(?:AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{36}|sk-[A-Za-z0-9]{20,}|xox[baprs]-[0-9A-Za-z\-]{10,48})\b`)
+var outputPIISecretPrefixPattern = regexp.MustCompile(`\b(?:AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{36}|gho_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{59}|sk-ant-[A-Za-z0-9\-_]{90,}|sk-[A-Za-z0-9]{20,}|hf_[A-Za-z0-9]{37}|npm_[A-Za-z0-9]{36}|AIza[0-9A-Za-z\-_]{35}|sk_live_[A-Za-z0-9]{24,}|pk_live_[A-Za-z0-9]{24,}|xox[baprs]-[0-9A-Za-z\-]{10,48})\b`)
 
 var outputPIISSNContextWords = []string{"ssn", "social security", "social sec"}
 var outputPIIPhoneContextWords = []string{"phone", "call", "mobile", "cell", "tel", "contact"}

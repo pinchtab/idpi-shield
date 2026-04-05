@@ -94,7 +94,7 @@ func scanOutputRelevance(outputText, originalPrompt string) outputRelevanceResul
 func uniqueOutputTerms(text string) map[string]struct{} {
 	m := make(map[string]struct{})
 	for _, t := range outputRelevanceTokenPattern.FindAllString(strings.ToLower(text), -1) {
-		if len(t) <= outputRelevanceMinTokenLength {
+		if len(t) < outputRelevanceMinTokenLength {
 			continue
 		}
 		if _, stop := outputRelevanceStopwords[t]; stop {

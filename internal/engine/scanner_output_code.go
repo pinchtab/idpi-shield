@@ -26,7 +26,7 @@ type outputCodeResult struct {
 }
 
 var outputFencedCodePattern = regexp.MustCompile("(?s)```([a-zA-Z0-9#+-]*)\\n(.*?)```")
-var outputShellLinePattern = regexp.MustCompile(`(?m)^\s*[$#]\s+\S+`)
+var outputShellLinePattern = regexp.MustCompile(`(?m)^\s*\$\s+\S+`)
 
 var outputInlinePythonPattern = regexp.MustCompile(`\b(import\s+\w+|def\s+\w+\(|class\s+\w+|print\()`)
 var outputInlineJSHashPattern = regexp.MustCompile(`\b(function\s+\w*\(|const\s+\w+|let\s+\w+|require\()`)
@@ -99,7 +99,7 @@ func scanOutputCode(text string, cfg outputCodeConfig) outputCodeResult {
 		result.HighCount = reduceHalf(result.HighCount)
 		result.MediumCount = reduceHalf(result.MediumCount)
 	}
-	if cfg.AllowCode {
+	if cfg.AllowCode && !cfg.BanCode {
 		result.MediumCount = 0
 	}
 

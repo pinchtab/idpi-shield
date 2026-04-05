@@ -200,12 +200,47 @@ func hasOutputSuspiciousTLD(urlLower string) bool {
 
 // isOutputURLSafeExample reports whether a URL appears to be documentation-only sample content.
 func isOutputURLSafeExample(_ string, rawURL string) bool {
-	urlLower := strings.ToLower(rawURL)
-	if strings.Contains(urlLower, "example.com") || strings.Contains(urlLower, "your-domain.com") || strings.Contains(urlLower, "placeholder.com") {
+	host := extractOutputURLHost(rawURL)
+	if host == "" {
+		return false
+	}
+	if outputURLHostMatchesDomain(host, "example.com") ||
+		outputURLHostMatchesDomain(host, "your-domain.com") ||
+		outputURLHostMatchesDomain(host, "placeholder.com") {
 		return true
 	}
-	if containsAny(urlLower, outputSafeDomains) {
-		return true
+
+	for _, domain := range outputSafeDomains {
+		if outputURLHostMatchesDomain(host, domain) {
+			return true
+		}
 	}
 	return false
+}
+
+// extractOutputURLHost parses a URL or bare domain and returns the normalized hostname.
+func extractOutputURLHost(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return ""
+	}
+	if !strings.Contains(trimmed, "://") {
+		trimmed = "http://" + trimmed
+	}
+	u, err := url.Parse(trimmed)
+	if err != nil {
+		return ""
+	}
+	host := strings.ToLower(strings.TrimSpace(u.Hostname()))
+	return host
+}
+
+// outputURLHostMatchesDomain checks exact host or subdomain match for an allowlisted domain.
+func outputURLHostMatchesDomain(host, domain string) bool {
+	h := strings.TrimSpace(strings.ToLower(host))
+	d := strings.TrimSpace(strings.ToLower(domain))
+	if h == "" || d == "" {
+		return false
+	}
+	return h == d || strings.HasSuffix(h, "."+d)
 }
