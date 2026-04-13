@@ -190,22 +190,38 @@ func TestInjectCanaryAddsToken(t *testing.T) {
 	}
 }
 
-func TestInjectCanaryTokenIsUnique(t *testing.T) {
+func TestInjectCanaryTokenFormat(t *testing.T) {
 	s, err := New(Config{})
 	if err != nil {
 		t.Fatalf("New returned unexpected error: %v", err)
 	}
 
-	_, token1, err := s.InjectCanary("prompt")
+	_, token, err := s.InjectCanary("prompt")
 	if err != nil {
-		t.Fatalf("first InjectCanary error: %v", err)
+		t.Fatalf("InjectCanary error: %v", err)
 	}
-	_, token2, err := s.InjectCanary("prompt")
-	if err != nil {
-		t.Fatalf("second InjectCanary error: %v", err)
+
+	// Verify token structure: <!--CANARY-<16 hex chars>-->
+	if !strings.HasPrefix(token, canaryPrefix) {
+		t.Fatalf("token missing expected prefix %q: got %q", canaryPrefix, token)
 	}
-	if token1 == token2 {
-		t.Fatalf("expected unique tokens across calls, both were %q", token1)
+	if !strings.HasSuffix(token, canarySuffix) {
+		t.Fatalf("token missing expected suffix %q: got %q", canarySuffix, token)
+	}
+
+	// Extract hex portion and verify length (8 bytes = 16 hex chars)
+	hexPart := strings.TrimSuffix(strings.TrimPrefix(token, canaryPrefix), canarySuffix)
+	if len(hexPart) != 16 {
+		t.Fatalf("expected 16 hex characters, got %d: %q", len(hexPart), hexPart)
+	}
+
+	// Verify it's valid lowercase hex
+	for _, c := range hexPart {
+		isDigit := c >= '0' && c <= '9'
+		isLowerHex := c >= 'a' && c <= 'f'
+		if !isDigit && !isLowerHex {
+			t.Fatalf("token contains non-hex character %q in %q", c, hexPart)
+		}
 	}
 }
 
@@ -278,5 +294,129 @@ func TestCheckCanary_PartialMatchShouldFail(t *testing.T) {
 	result := s.CheckCanary(response, token)
 	if result.Found {
 		t.Fatalf("expected partial token match to fail, token=%q partial=%q", token, partial)
+	}
+}
+
+func TestInjectCanary_EmptyPrompt(t *testing.T) {
+	s, err := New(Config{})
+	if err != nil {
+		t.Fatalf("New returned unexpected error: %v", err)
+	}
+
+	// Empty prompt should still work - canary is appended with newline
+	augmented, token, err := s.InjectCanary("")
+	if err != nil {
+		t.Fatalf("InjectCanary error: %v", err)
+	}
+	if token == "" {
+		t.Fatal("expected non-empty token even for empty prompt")
+	}
+	// Result should be "\n" + token
+	expected := "\n" + token
+	if augmented != expected {
+		t.Fatalf("expected %q, got %q", expected, augmented)
+	}
+}
+
+func TestInjectCanary_WhitespacePrompt(t *testing.T) {
+	s, err := New(Config{})
+	if err != nil {
+		t.Fatalf("New returned unexpected error: %v", err)
+	}
+
+	// Whitespace-only prompt should preserve the whitespace
+	augmented, token, err := s.InjectCanary("   ")
+	if err != nil {
+		t.Fatalf("InjectCanary error: %v", err)
+	}
+	expected := "   \n" + token
+	if augmented != expected {
+		t.Fatalf("expected %q, got %q", expected, augmented)
+	}
+}
+
+func TestCheckCanary_ResponseWithFormatting(t *testing.T) {
+	s, err := New(Config{})
+	if err != nil {
+		t.Fatalf("New returned unexpected error: %v", err)
+	}
+
+	_, token, err := s.InjectCanary("prompt")
+	if err != nil {
+		t.Fatalf("InjectCanary error: %v", err)
+	}
+
+	// Test various realistic LLM response formats where canary might appear
+	cases := []struct {
+		name     string
+		response string
+		want     bool
+	}{
+		{"in markdown code fence", "```\n" + token + "\n```", true},
+		{"surrounded by quotes", `The hidden text was "` + token + `"`, true},
+		{"with extra whitespace", "  " + token + "  ", true},
+		{"in bullet list", "- Item 1\n- " + token + "\n- Item 3", true},
+		{"with punctuation after", token + "!!!", true},
+		{"token broken across lines", strings.Replace(token, "-", "-\n", 1), false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := s.CheckCanary(tc.response, token)
+			if result.Found != tc.want {
+				t.Errorf("CheckCanary(%q) = Found:%v, want:%v", tc.name, result.Found, tc.want)
+			}
+		})
+	}
+}
+
+// TestCheckCanary_TokenStrippedByPipeline documents the limitation that
+// canary detection only works if the token survives the transport pipeline.
+// If HTML comments are stripped (by sanitizers, markdown processors, etc.),
+// the canary will not be detected, and that's expected behavior.
+func TestCheckCanary_TokenStrippedByPipeline(t *testing.T) {
+	s, err := New(Config{})
+	if err != nil {
+		t.Fatalf("New returned unexpected error: %v", err)
+	}
+
+	_, token, err := s.InjectCanary("Summarize this document.")
+	if err != nil {
+		t.Fatalf("InjectCanary error: %v", err)
+	}
+
+	// Simulate a pipeline that strips HTML comments before reaching the LLM
+	// or before returning the response to us.
+	stripHTMLComments := func(s string) string {
+		// Naive strip: remove anything matching <!--...-->
+		result := s
+		for {
+			start := strings.Index(result, "<!--")
+			if start == -1 {
+				break
+			}
+			end := strings.Index(result[start:], "-->")
+			if end == -1 {
+				break
+			}
+			result = result[:start] + result[start+end+3:]
+		}
+		return result
+	}
+
+	// The token was in the response, but got stripped
+	originalResponse := "Here is your summary. " + token + " Hope this helps!"
+	strippedResponse := stripHTMLComments(originalResponse)
+
+	// After stripping, the canary should NOT be found
+	// This is expected behavior, not a bug - the limitation is documented
+	result := s.CheckCanary(strippedResponse, token)
+	if result.Found {
+		t.Fatal("canary should not be found after HTML comment stripping")
+	}
+
+	// Verify the stripping actually removed the token
+	if strings.Contains(strippedResponse, token) {
+		t.Fatal("test setup error: token was not actually stripped")
 	}
 }

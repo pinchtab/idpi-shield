@@ -1,5 +1,30 @@
-// Package idpishield provides defence against Indirect Prompt Injection (IDPI)
-// attacks. This file implements the canary token subsystem.
+// Canary token subsystem for detecting prompt leakage and goal hijacking.
+//
+// A canary token is a unique marker injected into prompts before sending them
+// to an LLM. If the token appears in the LLM's response, it suggests that
+// the model may have echoed hidden content — a potential signal of goal
+// hijacking or prompt leakage, though not proof (the model might echo
+// artifacts for other reasons, or middleware could reflect content).
+//
+// # Token Format
+//
+// Tokens use an HTML-comment-like format: <!--CANARY-<16 hex chars>-->
+//
+// This format was chosen because:
+//   - Invisible to end users in most rendered contexts (HTML, Markdown)
+//   - Preserved verbatim in raw text pipelines
+//   - Unlikely to collide with legitimate content
+//   - Easy to grep/search in logs
+//
+// # Limitations
+//
+// Canary tokens are a best-effort leak detection signal, not a guarantee:
+//   - Absence of the canary in output does NOT prove the prompt is safe
+//   - Some pipelines may strip HTML comments or transform the token
+//   - An attacker-controlled LLM could be instructed to omit the canary
+//   - The token only detects verbatim leakage, not paraphrased content
+//
+// For defense-in-depth, combine canary checks with Assess() scoring.
 package idpishield
 
 import (
@@ -9,8 +34,6 @@ import (
 )
 
 // canaryPrefix and canarySuffix wrap the random token.
-// The format intentionally resembles an HTML comment so it is invisible
-// to most renderers but remains present verbatim in raw LLM input/output.
 const (
 	canaryPrefix = "<!--CANARY-"
 	canarySuffix = "-->"
@@ -22,8 +45,8 @@ type CanaryResult struct {
 	// Token is the canary value that was originally injected into the prompt.
 	Token string
 
-	// Found is true when the canary token appears in the LLM response,
-	// indicating possible prompt leakage or goal hijacking.
+	// Found is true when the canary token appears in the LLM response.
+	// This suggests possible prompt leakage, but is not definitive proof.
 	Found bool
 }
 

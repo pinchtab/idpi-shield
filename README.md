@@ -57,12 +57,16 @@ package main
 
 import (
 	"fmt"
+	"log"
 
 	idpi "github.com/pinchtab/idpishield"
 )
 
 func main() {
-	shield := idpi.New(idpi.Config{Mode: idpi.ModeBalanced})
+	shield, err := idpi.New(idpi.Config{Mode: idpi.ModeBalanced})
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	result := shield.Assess("Ignore all previous instructions", "https://example.com")
 	fmt.Printf("score=%d level=%s blocked=%v\n", result.Score, result.Level, result.Blocked)
@@ -159,12 +163,53 @@ const (
 	ModeDeep     Mode = "deep"
 )
 
-func New(cfg Config) *Shield
+func New(cfg Config) (*Shield, error)
 func (s *Shield) Assess(text, url string) RiskResult
 func (s *Shield) Wrap(text, url string) string
+func (s *Shield) InjectCanary(prompt string) (injectedPrompt, token string, err error)
+func (s *Shield) CheckCanary(response, token string) CanaryResult
 ```
 
 `Wrap` is useful when you want to preserve data while adding trust-boundary markers before sending content into prompts.
+
+`InjectCanary` and `CheckCanary` implement canary token detection for prompt leakage (see below).
+
+## Canary Tokens
+
+Canary tokens help detect when an LLM may have leaked or echoed hidden prompt content — a potential signal of goal hijacking or prompt extraction, though not definitive proof.
+
+### Usage
+
+```go
+// Before calling the LLM, inject a canary token
+augmented, token, err := shield.InjectCanary(myPrompt)
+if err != nil {
+    log.Fatal(err)
+}
+
+// Send augmented prompt to LLM
+response := callLLM(augmented)
+
+// Check if the canary appeared in the response
+result := shield.CheckCanary(response, token)
+if result.Found {
+    log.Println("canary detected: investigate possible leakage")
+}
+```
+
+### How It Works
+
+`InjectCanary` appends a unique marker (`<!--CANARY-<16 hex chars>-->`) to your prompt. After the LLM responds, `CheckCanary` scans for that marker. If found, the LLM may have echoed hidden content — worth investigating, though other explanations exist (middleware reflection, model artifacts, etc.).
+
+### Limitations
+
+Canary tokens are a **best-effort** leak detection signal, not a guarantee:
+
+- **Absence does NOT prove safety** — an attacker could instruct the LLM to omit or transform the canary
+- **Some pipelines strip HTML comments** — if your stack sanitizes HTML, the token may be removed before reaching the LLM or before you check the response
+- **Only detects verbatim leakage** — paraphrased or partial leaks won't trigger detection
+
+For defense-in-depth, combine canary checks with `Assess()` scoring on untrusted inputs.
 
 ## CLI (Secondary Interface)
 

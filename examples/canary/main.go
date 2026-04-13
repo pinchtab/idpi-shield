@@ -4,8 +4,8 @@
 //
 // Before sending a prompt to an LLM, call InjectCanary to embed a unique
 // hidden token. After the LLM responds, call CheckCanary with the token.
-// If the token appears in the response, the LLM was instructed to leak or
-// echo hidden content - a clear indicator of goal hijacking or leakage.
+// If the token appears in the response, it suggests the LLM may have echoed
+// hidden content — a potential signal of leakage worth investigating.
 package main
 
 import (
