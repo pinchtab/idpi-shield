@@ -45,6 +45,8 @@ var outputPIIPublicIPPattern = regexp.MustCompile(`\b\d{1,3}(?:\.\d{1,3}){3}\b`)
 var outputPIINamePattern = regexp.MustCompile(`\b[A-Z][a-z]+ [A-Z][a-z]+\b`)
 var outputPIISecretAssignmentPattern = regexp.MustCompile(`(?i)\b(?:api[_\-]?key|token|secret|password)\b\s*[:=]\s*\S{8,}`)
 var outputPIISecretPrefixPattern = regexp.MustCompile(`\b(?:AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{36}|gho_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{59}|sk-ant-[A-Za-z0-9\-_]{90,}|sk-[A-Za-z0-9]{20,}|hf_[A-Za-z0-9]{37}|npm_[A-Za-z0-9]{36}|AIza[0-9A-Za-z\-_]{35}|sk_live_[A-Za-z0-9]{24,}|pk_live_[A-Za-z0-9]{24,}|xox[baprs]-[0-9A-Za-z\-]{10,48})\b`)
+var outputPIIAzureSASPattern = regexp.MustCompile(`(?i)\bsig=[a-zA-Z0-9%]{40,}\b`)
+var outputPIIAWSSecretPattern = regexp.MustCompile(`\b[0-9a-zA-Z/+]{40}\b`)
 
 var outputPIISSNContextWords = []string{"ssn", "social security", "social sec"}
 var outputPIIPhoneContextWords = []string{"phone", "call", "mobile", "cell", "tel", "contact"}
@@ -299,7 +301,28 @@ func redactPIIText(text string, details []piiMatch) string {
 func redactOutputSecrets(text string) string {
 	out := outputPIISecretAssignmentPattern.ReplaceAllString(text, "[REDACTED-KEY]")
 	out = outputPIISecretPrefixPattern.ReplaceAllString(out, "[REDACTED-KEY]")
+	out = outputPIIAzureSASPattern.ReplaceAllString(out, "sig=[REDACTED-SAS]")
+	out = redactAWSSecretKeys(out)
 	return out
+}
+
+// redactAWSSecretKeys redacts 40-char base64-like tokens that appear in AWS secret context.
+func redactAWSSecretKeys(text string) string {
+	contextPattern := regexp.MustCompile(`(?i)\b(?:aws|secret)\b`)
+	for _, loc := range outputPIIAWSSecretPattern.FindAllStringIndex(text, -1) {
+		start := loc[0] - 50
+		if start < 0 {
+			start = 0
+		}
+		end := loc[1] + 50
+		if end > len(text) {
+			end = len(text)
+		}
+		if contextPattern.FindStringIndex(text[start:end]) != nil {
+			text = text[:loc[0]] + "[REDACTED-AWS-SECRET]" + text[loc[1]:]
+		}
+	}
+	return text
 }
 
 // piiRedactionTag returns the canonical replacement tag for a detected PII type.

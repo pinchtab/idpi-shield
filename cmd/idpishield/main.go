@@ -338,6 +338,10 @@ func runScan(args []string) error {
 		return err
 	}
 
+	if *asOutput && (*url != "" || *domains != "") {
+		log.Printf("warning: --as-output ignores --url and --domains flags; use scan-output subcommand for output scanning")
+	}
+
 	shieldConfig := idpi.Config{
 		Mode:                           idpi.ParseMode(*mode),
 		AllowedDomains:                 parseDomains(*domains),

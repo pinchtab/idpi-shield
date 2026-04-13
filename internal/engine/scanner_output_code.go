@@ -29,7 +29,7 @@ var outputFencedCodePattern = regexp.MustCompile("(?s)```([a-zA-Z0-9#+-]*)\\n(.*
 var outputShellLinePattern = regexp.MustCompile(`(?m)^\s*\$\s+\S+`)
 
 var outputInlinePythonPattern = regexp.MustCompile(`\b(import\s+\w+|def\s+\w+\(|class\s+\w+|print\()`)
-var outputInlineJSHashPattern = regexp.MustCompile(`\b(function\s+\w*\(|const\s+\w+|let\s+\w+|require\()`)
+var outputInlineJSHashPattern = regexp.MustCompile(`\b(function\s+\w*\(|const\s+\w+\s*=|let\s+\w+\s*=|require\()`)
 var outputInlineGoPattern = regexp.MustCompile(`\b(package\s+\w+|func\s+\w+\(|import\s*\()`)
 var outputInlineBashPattern = regexp.MustCompile(`(?i)(#!/bin/bash|\bcurl\b|\bwget\b|\bchmod\b)`)
 
