@@ -228,8 +228,7 @@ type SanitizeConfig struct {
 	// RedactAPIKeys removes API keys and tokens. Default: true
 	RedactAPIKeys bool
 
-	// RedactIPAddresses removes IP addresses. Default: false
-	// Disabled by default because IPs appear legitimately in many contexts.
+	// RedactIPAddresses removes IP addresses. Default: true
 	RedactIPAddresses bool
 
 	// RedactURLs removes or masks URLs. Default: false
@@ -247,8 +246,8 @@ type SanitizeConfig struct {
 }
 
 // DefaultSanitizeConfig returns a SanitizeConfig with safe defaults.
-// Emails, phones, SSNs, credit cards, and API keys are redacted.
-// IP addresses and URLs are not redacted by default.
+// Emails, phones, SSNs, credit cards, API keys, and IP addresses are redacted.
+// URLs are not redacted by default.
 func DefaultSanitizeConfig() SanitizeConfig {
 	return SanitizeConfig{
 		RetainOriginal:    true,
@@ -257,7 +256,7 @@ func DefaultSanitizeConfig() SanitizeConfig {
 		RedactSSNs:        true,
 		RedactCreditCards: true,
 		RedactAPIKeys:     true,
-		RedactIPAddresses: false,
+		RedactIPAddresses: true,
 		RedactURLs:        false,
 		ReplacementFormat: "[REDACTED-%s]",
 	}

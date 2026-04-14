@@ -232,6 +232,17 @@ func TestSanitize_PhoneWithoutContextNotRedacted(t *testing.T) {
 	}
 }
 
+func TestSanitize_IPAddressRedactedByDefault(t *testing.T) {
+	input := "Connect to 203.0.113.7 for diagnostics"
+	cleanText, _, err := sanitize(input, defaultSanitizeConfig())
+	if err != nil {
+		t.Fatalf("sanitize failed: %v", err)
+	}
+	if !strings.Contains(cleanText, "[REDACTED-IP-ADDRESS]") {
+		t.Fatalf("expected IP redaction by default, got %q", cleanText)
+	}
+}
+
 func TestSanitizeOutput_PhoneWithoutContextRedacted(t *testing.T) {
 	cleanText, _, err := sanitize("The number 555-123-4567 appears here", defaultOutputSanitizeConfig())
 	if err != nil {
@@ -335,6 +346,47 @@ func TestSanitize_ObfuscatedEmailAtDotRedacted(t *testing.T) {
 	}
 }
 
+func TestSanitize_RedactionMetadataTracksOriginalSpacedEmail(t *testing.T) {
+	input := "j o h n @ c o m p a n y . c o m"
+	_, redactions, err := sanitize(input, defaultSanitizeConfig())
+	if err != nil {
+		t.Fatalf("sanitize failed: %v", err)
+	}
+	if len(redactions) != 1 {
+		t.Fatalf("expected one redaction, got %d", len(redactions))
+	}
+	got := redactions[0]
+	want := "j o h n @ c o m p a n y . c o m"
+	if got.Original != want {
+		t.Fatalf("expected original %q, got %q", want, got.Original)
+	}
+	if got.Start < 0 || got.End > len(input) || got.Start >= got.End {
+		t.Fatalf("invalid offsets: %+v", got)
+	}
+	if input[got.Start:got.End] != want {
+		t.Fatalf("expected input slice %q, got %q", want, input[got.Start:got.End])
+	}
+}
+
+func TestSanitize_RedactionMetadataTracksOriginalObfuscatedEmail(t *testing.T) {
+	input := "Reach john(at)company(dot)com for details"
+	_, redactions, err := sanitize(input, defaultSanitizeConfig())
+	if err != nil {
+		t.Fatalf("sanitize failed: %v", err)
+	}
+	if len(redactions) != 1 {
+		t.Fatalf("expected one redaction, got %d", len(redactions))
+	}
+	got := redactions[0]
+	want := "john(at)company(dot)com"
+	if got.Original != want {
+		t.Fatalf("expected original %q, got %q", want, got.Original)
+	}
+	if input[got.Start:got.End] != want {
+		t.Fatalf("expected input slice %q, got %q", want, input[got.Start:got.End])
+	}
+}
+
 func TestSanitize_SplitAPIKeyRedacted(t *testing.T) {
 	input := "Token AKIA IOSFO DNN7 EXAMPLE should be hidden"
 	cleanText, _, err := sanitize(input, defaultSanitizeConfig())
@@ -376,5 +428,24 @@ func TestSanitize_LargeInputDoesNotCrash(t *testing.T) {
 	}
 	if len(redactions) > sanitizeMaxMatches {
 		t.Fatalf("expected redactions capped at %d, got %d", sanitizeMaxMatches, len(redactions))
+	}
+}
+
+func TestSanitize_RedactionMetadataTracksOriginalFullwidthEmail(t *testing.T) {
+	input := "Email Ｊｏｈｎ＠ｃｏｍｐａｎｙ.ｃｏｍ now"
+	_, redactions, err := sanitize(input, defaultSanitizeConfig())
+	if err != nil {
+		t.Fatalf("sanitize failed: %v", err)
+	}
+	if len(redactions) != 1 {
+		t.Fatalf("expected one redaction, got %d", len(redactions))
+	}
+	got := redactions[0]
+	want := "Ｊｏｈｎ＠ｃｏｍｐａｎｙ.ｃｏｍ"
+	if got.Original != want {
+		t.Fatalf("expected original %q, got %q", want, got.Original)
+	}
+	if input[got.Start:got.End] != want {
+		t.Fatalf("expected input slice %q, got %q", want, input[got.Start:got.End])
 	}
 }

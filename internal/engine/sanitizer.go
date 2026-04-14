@@ -83,7 +83,7 @@ func defaultSanitizeConfig() sanitizeConfig {
 		RedactSSNs:          true,
 		RedactCreditCards:   true,
 		RedactAPIKeys:       true,
-		RedactIPAddresses:   false,
+		RedactIPAddresses:   true,
 		RedactURLs:          false,
 		ReplacementFormat:   defaultReplacementFormat,
 		RequirePhoneContext: true,
@@ -102,13 +102,14 @@ func defaultOutputSanitizeConfig() sanitizeConfig {
 }
 
 func sanitize(text string, cfg sanitizeConfig) (string, []redaction, error) {
-	preprocessed := preprocessUnicodeForSanitize(text)
-	preprocessed = preprocessObfuscationForSanitize(preprocessed)
-	if preprocessed == "" {
+	tracked := preprocessUnicodeForSanitizeTracked(text)
+	tracked = preprocessObfuscationForSanitizeTracked(tracked)
+	if tracked.Value == "" {
 		return "", []redaction{}, nil
 	}
-	if len(preprocessed) > sanitizeMaxInputBytes {
-		preprocessed = preprocessed[:sanitizeMaxInputBytes]
+	if len(tracked.Value) > sanitizeMaxInputBytes {
+		tracked.Value = tracked.Value[:sanitizeMaxInputBytes]
+		tracked.Origins = tracked.Origins[:sanitizeMaxInputBytes]
 	}
 
 	format := strings.TrimSpace(cfg.ReplacementFormat)
@@ -117,32 +118,32 @@ func sanitize(text string, cfg sanitizeConfig) (string, []redaction, error) {
 	}
 
 	patterns := compileCustomPatterns(cfg.CustomPatterns)
-	matches := findDecodedMatches(preprocessed, cfg)
-	matches = append(matches, collectEnabledMatches(preprocessed, cfg, patterns)...)
+	matches := findDecodedMatches(tracked.Value, cfg)
+	matches = append(matches, collectEnabledMatches(tracked.Value, cfg, patterns)...)
 	resolved := resolveOverlaps(matches)
 
 	if cfg.EnableNamePatterns {
-		resolved = addNameMatchesWhenPIIPresent(preprocessed, resolved)
+		resolved = addNameMatchesWhenPIIPresent(tracked.Value, resolved)
 		resolved = resolveOverlaps(resolved)
 	}
 
 	resolved = capMatches(resolved, sanitizeMaxMatches)
-	cleaned, redactions := applyReplacements(preprocessed, resolved, format, cfg.RetainOriginal)
+	tracked, redactions := applyReplacements(tracked, resolved, format, cfg.RetainOriginal)
 
 	// Run one additional pass on cleaned text to catch patterns revealed after decoding.
-	secondMatches := findDecodedMatches(cleaned, cfg)
-	secondMatches = append(secondMatches, collectEnabledMatches(cleaned, cfg, patterns)...)
+	secondMatches := findDecodedMatches(tracked.Value, cfg)
+	secondMatches = append(secondMatches, collectEnabledMatches(tracked.Value, cfg, patterns)...)
 	secondResolved := capMatches(resolveOverlaps(secondMatches), sanitizeMaxMatches)
 	if len(secondResolved) > 0 {
-		cleaned2, redactions2 := applyReplacements(cleaned, secondResolved, format, cfg.RetainOriginal)
-		cleaned = cleaned2
+		var redactions2 []redaction
+		tracked, redactions2 = applyReplacements(tracked, secondResolved, format, cfg.RetainOriginal)
 		redactions = append(redactions, redactions2...)
 		sort.Slice(redactions, func(i, j int) bool {
 			return redactions[i].Start < redactions[j].Start
 		})
 	}
 
-	return cleaned, redactions, nil
+	return tracked.Value, redactions, nil
 }
 
 func collectEnabledMatches(text string, cfg sanitizeConfig, patterns []*regexp.Regexp) []redactionMatch {
@@ -474,26 +475,37 @@ func betterMatch(left, right redactionMatch) bool {
 	return left.Start < right.Start
 }
 
-func applyReplacements(text string, matches []redactionMatch, format string, retain bool) (string, []redaction) {
+func applyReplacements(text trackedText, matches []redactionMatch, format string, retain bool) (trackedText, []redaction) {
 	if len(matches) == 0 {
 		return text, []redaction{}
 	}
 
-	out := text
-	desc := make([]redactionMatch, len(matches))
-	copy(desc, matches)
-	sort.Slice(desc, func(i, j int) bool {
-		return desc[i].Start > desc[j].Start
+	ordered := make([]redactionMatch, len(matches))
+	copy(ordered, matches)
+	sort.Slice(ordered, func(i, j int) bool {
+		if ordered[i].Start != ordered[j].Start {
+			return ordered[i].Start < ordered[j].Start
+		}
+		return ordered[i].End < ordered[j].End
 	})
 
-	redactions := make([]redaction, 0, len(desc))
-	for _, m := range desc {
-		if m.Start < 0 || m.End > len(out) || m.Start >= m.End {
+	var b strings.Builder
+	b.Grow(len(text.Value))
+	origins := make([]originSpan, 0, len(text.Origins))
+	redactions := make([]redaction, 0, len(ordered))
+	cursor := 0
+
+	for _, m := range ordered {
+		if m.Start < 0 || m.End > len(text.Value) || m.Start >= m.End {
 			continue
 		}
+		appendTrackedSlice(&b, &origins, text, cursor, m.Start)
+
 		replacement := replacementForType(format, m.Type, m.Subtype)
-		out = out[:m.Start] + replacement + out[m.End:]
-		original := m.Original
+		matchSpan := collapseOriginRange(text.Origins, m.Start, m.End)
+		appendOriginLiteral(&b, &origins, replacement, matchSpan)
+
+		original := originalSegment(text.Raw, matchSpan)
 		if !retain {
 			original = ""
 		}
@@ -501,16 +513,18 @@ func applyReplacements(text string, matches []redactionMatch, format string, ret
 			Type:        m.Type,
 			Original:    original,
 			Replacement: replacement,
-			Start:       m.Start,
-			End:         m.End,
+			Start:       matchSpan.Start,
+			End:         matchSpan.End,
 		})
+		cursor = m.End
 	}
+	appendTrackedSlice(&b, &origins, text, cursor, len(text.Value))
 
-	sort.Slice(redactions, func(i, j int) bool {
-		return redactions[i].Start < redactions[j].Start
-	})
-
-	return out, redactions
+	return trackedText{
+		Value:   b.String(),
+		Origins: origins,
+		Raw:     text.Raw,
+	}, redactions
 }
 
 func replacementForType(format string, t redactionType, subtype string) string {

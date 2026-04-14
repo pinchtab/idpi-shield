@@ -60,7 +60,7 @@ func main() {
 | RedactSSNs | true | Redact social security numbers |
 | RedactCreditCards | true | Redact credit card numbers |
 | RedactAPIKeys | true | Redact detected high-confidence API keys and tokens |
-| RedactIPAddresses | false | Redact IPv4 addresses |
+| RedactIPAddresses | true | Redact IPv4 addresses |
 | RedactURLs | false | Redact URLs |
 | CustomPatterns | empty | Extra regex patterns for redaction |
 | ReplacementFormat | [REDACTED-%s] | Format string for replacement tags |

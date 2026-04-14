@@ -85,6 +85,17 @@ func TestSanitize_EndToEnd_OutputMode(t *testing.T) {
 	}
 }
 
+func TestSanitize_EndToEnd_DefaultConfigRedactsIP(t *testing.T) {
+	shield := mustNewShield(t, idpishield.Config{Mode: idpishield.ModeBalanced})
+	cleanText, _, err := shield.Sanitize("Server IP is 203.0.113.7", nil)
+	if err != nil {
+		t.Fatalf("sanitize failed: %v", err)
+	}
+	if !strings.Contains(cleanText, "[REDACTED-IP-ADDRESS]") {
+		t.Fatalf("expected IP redacted by default, got %q", cleanText)
+	}
+}
+
 func TestSanitizeAndAssess_AttackWithPII(t *testing.T) {
 	shield := mustNewShield(t, idpishield.Config{Mode: idpishield.ModeBalanced})
 	cleanText, _, result, err := shield.SanitizeAndAssess(
