@@ -616,8 +616,10 @@ func (s *Shield) WithScanners(names ...string) *Shield {
 		return s
 	}
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.mu.RLock()
+	baseCfg := s.baseCfg
+	registry := cloneScannerRegistry(s.scannerRegistry)
+	s.mu.RUnlock()
 
 	selected := make([]Scanner, 0, len(names))
 	for _, name := range names {
@@ -625,15 +627,15 @@ func (s *Shield) WithScanners(names ...string) *Shield {
 		if key == "" {
 			continue
 		}
-		scanner, ok := s.scannerRegistry[key]
+		scanner, ok := registry[key]
 		if !ok || scanner == nil {
 			continue
 		}
 		selected = append(selected, scanner)
 	}
 
-	baseExtras := append([]Scanner(nil), s.baseCfg.ExtraScanners...)
-	cfg := s.baseCfg
+	baseExtras := append([]Scanner(nil), baseCfg.ExtraScanners...)
+	cfg := baseCfg
 	cfg.ExtraScanners = mergeScannersByName(baseExtras, selected)
 
 	resolvedCfg, err := engine.ResolveConfig(toEngineCfg(cfg))
@@ -644,8 +646,11 @@ func (s *Shield) WithScanners(names ...string) *Shield {
 		return s
 	}
 
-	s.engine = engine.New(resolvedCfg)
-	return s
+	return &Shield{
+		engine:          engine.New(resolvedCfg),
+		baseCfg:         cfg,
+		scannerRegistry: registry,
+	}
 }
 
 // --- Functions ---
@@ -687,7 +692,11 @@ func Helpers() ScanHelpers { return ScanHelpers{} }
 func (h ScanHelpers) ContainsAny(text string, phrases []string) bool {
 	lower := strings.ToLower(text)
 	for _, phrase := range phrases {
-		if strings.Contains(lower, strings.ToLower(strings.TrimSpace(phrase))) {
+		trimmed := strings.ToLower(strings.TrimSpace(phrase))
+		if trimmed == "" {
+			continue
+		}
+		if strings.Contains(lower, trimmed) {
 			return true
 		}
 	}
@@ -808,6 +817,17 @@ func snapshotGlobalScannerRegistry() map[string]Scanner {
 	return out
 }
 
+func cloneScannerRegistry(in map[string]Scanner) map[string]Scanner {
+	if len(in) == 0 {
+		return map[string]Scanner{}
+	}
+	out := make(map[string]Scanner, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
+}
+
 func mergeScannersByName(base []Scanner, extras []Scanner) []Scanner {
 	out := make([]Scanner, 0, len(base)+len(extras))
 	seen := make(map[string]struct{}, len(base)+len(extras))
@@ -911,12 +931,12 @@ func (a *engineScannerAdapter) Scan(ctx engine.ExternalScanContext) engine.Exter
 	}
 
 	publicResult := a.scanner.Scan(publicCtx)
-	metadata := make(map[string]string, len(publicResult.Metadata))
-	for k, v := range publicResult.Metadata {
-		metadata[k] = v
-	}
-	if len(metadata) == 0 {
-		metadata = nil
+	var metadata map[string]string
+	if len(publicResult.Metadata) > 0 {
+		metadata = make(map[string]string, len(publicResult.Metadata))
+		for k, v := range publicResult.Metadata {
+			metadata[k] = v
+		}
 	}
 
 	return engine.ExternalScanResult{

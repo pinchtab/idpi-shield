@@ -504,6 +504,32 @@ func TestGlobalRegisterScanner_AvailableToNewShield(t *testing.T) {
 	}
 }
 
+func TestWithScanners_ReturnsCloneWithoutMutatingOriginal(t *testing.T) {
+	shield := mustNewShield(t, Config{Mode: ModeBalanced})
+	shield.RegisterScanner(&apiKeywordScanner{
+		name:     "clone-only-risk",
+		trigger:  "clone-trigger",
+		score:    9,
+		category: "clone-only",
+		reason:   "clone scanner matched",
+	})
+
+	cloned := shield.WithScanners("clone-only-risk")
+	if cloned == shield {
+		t.Fatal("expected WithScanners to return a cloned shield instance")
+	}
+
+	original := shield.Assess("contains clone-trigger", "")
+	if containsString(original.Categories, "clone-only") {
+		t.Fatalf("original shield should not be mutated, got categories=%v", original.Categories)
+	}
+
+	updated := cloned.Assess("contains clone-trigger", "")
+	if !containsString(updated.Categories, "clone-only") {
+		t.Fatalf("cloned shield should include selected scanner, got categories=%v", updated.Categories)
+	}
+}
+
 func containsString(values []string, needle string) bool {
 	for _, value := range values {
 		if value == needle {

@@ -17,7 +17,7 @@ type Scanner interface {
 | `Text` | `string` | Normalized text after decoding/normalization. |
 | `RawText` | `string` | Original text before normalization. |
 | `URL` | `string` | Source URL when available. |
-| `Mode` | `idpishield.Mode` | Current scan mode (`fast`, `balanced`, `deep`). |
+| `Mode` | `idpishield.Mode` | Current scan mode (`fast`, `balanced`, `deep`, `strict`). |
 | `IsOutputScan` | `bool` | True when called from `AssessOutput()`. |
 | `CurrentScore` | `int` | Score accumulated by built-ins before your scanner runs. |
 
@@ -30,6 +30,9 @@ type Scanner interface {
 | `Matched` | `bool` | True if this scanner detected a hit. |
 | `PatternID` | `string` | Optional pattern ID for audit trails. |
 | `Metadata` | `map[string]string` | Optional metadata for debugging. |
+
+`ScanContext.Mode` controls analysis pipeline depth (including `strict` full-pipeline execution).
+This is different from `Config.StrictMode`, which only changes blocking thresholds.
 
 ## Writing Your First Scanner
 1. Define a scanner struct that implements `Name()` and `Scan()`.

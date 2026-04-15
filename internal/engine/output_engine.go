@@ -80,14 +80,17 @@ func assessOutput(text, originalPrompt string, cfg Config, customScanners ...Lay
 
 	if len(customScanners) > 0 {
 		layers = make([]LayerResult, 0, 1+len(scannerLayerExecutionOrder))
-		layers = append(layers, LayerResult{
+		heuristics := LayerResult{
 			Layer:       ScannerLayerHeuristics,
 			Score:       score,
 			ScannersRun: 1,
 			Matched:     score > 0,
 			Categories:  append([]string(nil), categories...),
 			Patterns:    append([]string(nil), patterns...),
-		})
+		}
+		if !isEmptyLayerResult(heuristics) {
+			layers = append(layers, heuristics)
+		}
 
 		fullPipeline := cfg.Mode == ModeStrict
 		customCtx := internalScanContext{

@@ -142,7 +142,10 @@ func (e *Engine) AssessContext(ctx context.Context, text, sourceURL string) Risk
 	result := buildResultWithSignalsWithDebiasAndBan(matches, analysisText, normSignals, e.banListCfg, e.cfg.DebiasTriggers != nil && *e.cfg.DebiasTriggers, e.cfg.StrictMode, e.cfg.BlockThreshold)
 
 	if len(e.customScanners) > 0 {
-		result.Layers = append(result.Layers, heuristicLayerResult(result))
+		heuristics := heuristicLayerResult(result)
+		if !isEmptyLayerResult(heuristics) {
+			result.Layers = append(result.Layers, heuristics)
+		}
 		fullPipeline := e.cfg.Mode == ModeStrict
 		customCtx := internalScanContext{
 			Text:         analysisText,
