@@ -32,18 +32,23 @@ type Config struct {
 	BanCompetitors                 []string
 	CustomRegex                    []string
 	ConfigFile                     string
+	ExtraScanners                  []ConfigScanner
+	ExtraOutputScanners            []ConfigScanner
+	MaxCustomScannerScore          int
 }
 
 // Engine is the core analysis engine.
 // Safe for concurrent use by multiple goroutines.
 type Engine struct {
-	cfg              Config
-	scanner          *scanner
-	normalizer       *normalizer
-	domain           *domainChecker
-	service          *serviceClient
-	compiledBanRegex []*regexp.Regexp
-	banListCfg       banListConfig
+	cfg                  Config
+	scanner              *scanner
+	normalizer           *normalizer
+	domain               *domainChecker
+	service              *serviceClient
+	compiledBanRegex     []*regexp.Regexp
+	banListCfg           banListConfig
+	customScanners       []LayeredScanner
+	customOutputScanners []LayeredScanner
 }
 
 // New creates a new Engine with the given configuration.
@@ -53,7 +58,7 @@ func New(cfg Config) *Engine {
 	}
 	if cfg.DebiasTriggers == nil {
 		switch cfg.Mode {
-		case ModeBalanced, ModeFast:
+		case ModeBalanced, ModeFast, ModeStrict:
 			t := true
 			cfg.DebiasTriggers = &t
 		default:
@@ -69,6 +74,13 @@ func New(cfg Config) *Engine {
 		domain:           newDomainChecker(cfg.AllowedDomains),
 		compiledBanRegex: compileCustomRegex(cfg.CustomRegex),
 	}
+
+	scoreCap := cfg.MaxCustomScannerScore
+	if scoreCap <= 0 {
+		scoreCap = defaultMaxCustomScannerScore
+	}
+	e.customScanners = adaptConfiguredScanners(cfg.ExtraScanners, scoreCap, ScannerLayerCustom)
+	e.customOutputScanners = adaptConfiguredScanners(cfg.ExtraOutputScanners, scoreCap, ScannerLayerCustom)
 	compiledTopics := compileWholeWordRegexes(cfg.BanTopics)
 	compiledCompetitors := compileWholeWordRegexes(cfg.BanCompetitors)
 	e.banListCfg = banListConfig{
@@ -129,6 +141,21 @@ func (e *Engine) AssessContext(ctx context.Context, text, sourceURL string) Risk
 	matches := e.scanner.scan(analysisText, e.cfg.MaxDecodeDepth, e.cfg.MaxDecodedVariants)
 	result := buildResultWithSignalsWithDebiasAndBan(matches, analysisText, normSignals, e.banListCfg, e.cfg.DebiasTriggers != nil && *e.cfg.DebiasTriggers, e.cfg.StrictMode, e.cfg.BlockThreshold)
 
+	if len(e.customScanners) > 0 {
+		result.Layers = append(result.Layers, heuristicLayerResult(result))
+		fullPipeline := e.cfg.Mode == ModeStrict
+		customCtx := internalScanContext{
+			Text:         analysisText,
+			RawText:      boundedText,
+			URL:          sourceURL,
+			Mode:         e.cfg.Mode,
+			IsOutputScan: false,
+			CurrentScore: result.Score,
+		}
+		customResult, layerResults := runLayeredScanners(e.customScanners, customCtx, fullPipeline)
+		result = applyCustomScanResult(result, customResult, layerResults, e.cfg.StrictMode, e.cfg.BlockThreshold)
+	}
+
 	if e.cfg.Mode == ModeDeep && e.service != nil && result.Score >= ThresholdEscalation {
 		serviceResult, err := e.service.assess(ctx, boundedText, sourceURL, e.cfg.Mode.String())
 		if err == nil {
@@ -142,7 +169,34 @@ func (e *Engine) AssessContext(ctx context.Context, text, sourceURL string) Risk
 
 // AssessOutput analyzes LLM response text for output-side risks.
 func (e *Engine) AssessOutput(text, originalPrompt string) RiskResult {
-	return assessOutput(text, originalPrompt, e.cfg)
+	return assessOutput(text, originalPrompt, e.cfg, e.customOutputScanners...)
+}
+
+func applyCustomScanResult(base RiskResult, custom customScanResult, layerResults []LayerResult, strict bool, blockThreshold int) RiskResult {
+	updated := base
+	if len(layerResults) > 0 {
+		updated.Layers = append(updated.Layers, layerResults...)
+	}
+
+	if !custom.Matched {
+		return updated
+	}
+
+	updated.Score += custom.TotalScore
+	if updated.Score > computeScoreMax {
+		updated.Score = computeScoreMax
+	}
+	updated.Level = ScoreToLevel(updated.Score)
+	updated.Blocked = ShouldBlock(updated.Score, strict, blockThreshold)
+	updated.Patterns = mergeUniqueStrings(updated.Patterns, custom.PatternIDs)
+	updated.Categories = mergeUniqueStrings(updated.Categories, custom.Categories)
+	updated.Intent = deriveIntent(updated.Categories)
+
+	for _, reason := range custom.Reasons {
+		updated.Reason = appendReason(updated.Reason, reason)
+	}
+
+	return updated
 }
 
 func compileCustomRegex(patterns []string) []*regexp.Regexp {
@@ -289,6 +343,7 @@ func MergeRiskResults(primary, secondary RiskResult) RiskResult {
 	merged.Patterns = mergeUniqueStrings(merged.Patterns, secondary.Patterns)
 	merged.Categories = mergeUniqueStrings(merged.Categories, secondary.Categories)
 	merged.BanListMatches = mergeUniqueStrings(merged.BanListMatches, secondary.BanListMatches)
+	merged.Layers = append(append([]LayerResult{}, merged.Layers...), secondary.Layers...)
 	merged.Reason = mergeReasons(merged.Reason, secondary.Reason)
 
 	return merged

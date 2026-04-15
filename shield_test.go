@@ -420,3 +420,95 @@ func TestCheckCanary_TokenStrippedByPipeline(t *testing.T) {
 		t.Fatal("test setup error: token was not actually stripped")
 	}
 }
+
+type apiKeywordScanner struct {
+	name     string
+	trigger  string
+	score    int
+	category string
+	reason   string
+}
+
+func (s *apiKeywordScanner) Name() string { return s.name }
+
+func (s *apiKeywordScanner) Scan(ctx ScanContext) ScanResult {
+	if Helpers().ContainsAny(ctx.Text, []string{s.trigger}) {
+		return ScanResult{
+			Score:    s.score,
+			Category: s.category,
+			Reason:   s.reason,
+			Matched:  true,
+		}
+	}
+	return ScanResult{}
+}
+
+func TestWithScanners_UsesShieldRegistryAndIgnoresUnknown(t *testing.T) {
+	shield := mustNewShield(t, Config{Mode: ModeBalanced})
+	shield.RegisterScanner(&apiKeywordScanner{
+		name:     "api-local-risk",
+		trigger:  "local-trigger",
+		score:    17,
+		category: "api-local",
+		reason:   "local scanner matched",
+	})
+
+	result := shield.WithScanners("unknown-scanner", "api-local-risk").Assess("contains local-trigger", "")
+	if result.Score == 0 {
+		t.Fatalf("expected non-zero score from selected scanner, got %d", result.Score)
+	}
+	if !containsString(result.Categories, "api-local") {
+		t.Fatalf("expected api-local category, got %v", result.Categories)
+	}
+}
+
+func TestWithScanners_PreservesConfigExtraScanners(t *testing.T) {
+	cfgScanner := &apiKeywordScanner{
+		name:     "cfg-extra-risk",
+		trigger:  "cfg-trigger",
+		score:    11,
+		category: "cfg-extra",
+		reason:   "cfg scanner matched",
+	}
+	shield := mustNewShield(t, Config{Mode: ModeBalanced, ExtraScanners: []Scanner{cfgScanner}})
+	shield.RegisterScanner(&apiKeywordScanner{
+		name:     "api-registered-risk",
+		trigger:  "registered-trigger",
+		score:    13,
+		category: "api-registered",
+		reason:   "registered scanner matched",
+	})
+
+	result := shield.WithScanners("api-registered-risk").Assess("cfg-trigger and registered-trigger", "")
+	if !containsString(result.Categories, "cfg-extra") {
+		t.Fatalf("expected cfg-extra category to remain active, got %v", result.Categories)
+	}
+	if !containsString(result.Categories, "api-registered") {
+		t.Fatalf("expected api-registered category, got %v", result.Categories)
+	}
+}
+
+func TestGlobalRegisterScanner_AvailableToNewShield(t *testing.T) {
+	RegisterScanner(&apiKeywordScanner{
+		name:     "api-global-risk",
+		trigger:  "global-trigger",
+		score:    19,
+		category: "api-global",
+		reason:   "global scanner matched",
+	})
+
+	shield := mustNewShield(t, Config{Mode: ModeBalanced})
+	result := shield.WithScanners("api-global-risk").Assess("contains global-trigger", "")
+	if !containsString(result.Categories, "api-global") {
+		t.Fatalf("expected api-global category, got %v", result.Categories)
+	}
+}
+
+func containsString(values []string, needle string) bool {
+	for _, value := range values {
+		if value == needle {
+			return true
+		}
+	}
+	return false
+}
