@@ -13,6 +13,7 @@ const (
 )
 
 type RiskResult = types.RiskResult
+type JudgeVerdictResult = types.JudgeVerdictResult
 type Intent = types.Intent
 type ScannerLayer = types.ScannerLayer
 type LayerResult = types.LayerResult

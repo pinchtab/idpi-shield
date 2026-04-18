@@ -23,6 +23,7 @@ package idpishield
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -54,6 +55,7 @@ const (
 // RiskResult is the canonical return type for all idpishield analysis operations.
 // Every client library and the service returns this exact structure.
 type RiskResult = types.RiskResult
+type JudgeVerdictResult = types.JudgeVerdictResult
 type ScannerLayer = types.ScannerLayer
 type LayerResult = types.LayerResult
 
@@ -258,6 +260,187 @@ type Config struct {
 	// MaxCustomScannerScore limits score contribution per custom scanner.
 	// Default is 50 when not set.
 	MaxCustomScannerScore int
+
+	// Judge configures the optional LLM-as-Judge layer.
+	// When nil or zero value, LLM judgment is disabled.
+	// The judge only runs when the heuristic score is within the
+	// configured threshold range — off by default.
+	Judge *JudgeConfig
+}
+
+// JudgeProvider identifies which LLM provider to use for judgment.
+type JudgeProvider string
+
+const (
+	// JudgeProviderOllama uses a local Ollama instance.
+	// Free, no API key required, runs offline.
+	// Install: https://ollama.ai
+	// Default model: llama3.2
+	JudgeProviderOllama JudgeProvider = "ollama"
+
+	// JudgeProviderOpenAI uses OpenAI's API.
+	// Requires OPENAI_API_KEY environment variable or APIKey field.
+	// Recommended model: gpt-4o-mini (cheap and fast)
+	JudgeProviderOpenAI JudgeProvider = "openai"
+
+	// JudgeProviderAnthropic uses Anthropic's API.
+	// Requires ANTHROPIC_API_KEY environment variable or APIKey field.
+	// Recommended model: claude-haiku-4-5 (cheapest Claude model)
+	JudgeProviderAnthropic JudgeProvider = "anthropic"
+
+	// JudgeProviderCustom uses a custom OpenAI-compatible API endpoint.
+	// Use this for LM Studio, llama.cpp server, vLLM, etc.
+	JudgeProviderCustom JudgeProvider = "custom"
+)
+
+// JudgeConfig configures the optional LLM-as-Judge layer.
+type JudgeConfig struct {
+	// Provider specifies which LLM provider to use.
+	Provider JudgeProvider
+
+	// Model is the model identifier to use.
+	// Defaults per provider:
+	//   ollama:    "llama3.2"
+	//   openai:    "gpt-4o-mini"
+	//   anthropic: "claude-haiku-4-5-20251001"
+	//   custom:    must be set explicitly
+	Model string
+
+	// APIKey is the API key for cloud providers.
+	// If empty, falls back to environment variables:
+	//   openai:    OPENAI_API_KEY
+	//   anthropic: ANTHROPIC_API_KEY
+	// Not used for Ollama or Custom providers.
+	APIKey string
+
+	// BaseURL is the API endpoint.
+	// Defaults per provider:
+	//   ollama:    "http://localhost:11434"
+	//   openai:    "https://api.openai.com/v1"
+	//   anthropic: "https://api.anthropic.com/v1"
+	//   custom:    must be set explicitly
+	BaseURL string
+
+	// ScoreThreshold is the minimum heuristic score that triggers
+	// LLM judgment. Only scores >= this value get sent to the LLM.
+	// Default: 25 (only uncertain/suspicious inputs get judged)
+	// Set higher (e.g. 40) to only judge near-block cases.
+	// Set to 0 to judge ALL inputs (expensive — not recommended).
+	ScoreThreshold int
+
+	// ScoreMaxForJudge is the maximum heuristic score that triggers
+	// LLM judgment. Scores above this are already clearly attacks
+	// and don't need LLM confirmation.
+	// Default: 75 (clear attacks don't need second opinion)
+	ScoreMaxForJudge int
+
+	// TimeoutSeconds is the HTTP request timeout for LLM calls.
+	// Default: 10 seconds.
+	// Set lower for latency-sensitive applications.
+	TimeoutSeconds int
+
+	// MaxTokens limits the LLM response length.
+	// Default: 150 (we only need a short verdict)
+	MaxTokens int
+
+	// SystemPrompt overrides the default judge system prompt.
+	// Leave empty to use the built-in prompt.
+	// The built-in prompt instructs the LLM to respond with
+	// JSON containing "verdict" and "reasoning" fields.
+	SystemPrompt string
+
+	// ScoreBoostOnAttack is added to the heuristic score when
+	// the LLM judges the input as an attack.
+	// Default: 30
+	ScoreBoostOnAttack int
+
+	// ScorePenaltyOnBenign is subtracted from the heuristic score
+	// when the LLM judges the input as benign.
+	// Default: 15
+	ScorePenaltyOnBenign int
+
+	// IncludeReasoningInResult includes the LLM's reasoning text
+	// in the RiskResult for debugging and audit purposes.
+	// Default: true
+	IncludeReasoningInResult bool
+}
+
+// applyJudgeDefaults applies provider-specific defaults and env fallbacks.
+func applyJudgeDefaults(cfg *JudgeConfig) {
+	if cfg == nil {
+		return
+	}
+
+	if cfg.Model == "" {
+		switch cfg.Provider {
+		case JudgeProviderOllama:
+			cfg.Model = "llama3.2"
+		case JudgeProviderOpenAI:
+			cfg.Model = "gpt-4o-mini"
+		case JudgeProviderAnthropic:
+			cfg.Model = "claude-haiku-4-5-20251001"
+		}
+	}
+
+	if cfg.BaseURL == "" {
+		switch cfg.Provider {
+		case JudgeProviderOllama:
+			cfg.BaseURL = "http://localhost:11434"
+		case JudgeProviderOpenAI:
+			cfg.BaseURL = "https://api.openai.com/v1"
+		case JudgeProviderAnthropic:
+			cfg.BaseURL = "https://api.anthropic.com/v1"
+		}
+	}
+
+	if cfg.ScoreThreshold == 0 {
+		cfg.ScoreThreshold = 25
+	}
+	if cfg.ScoreMaxForJudge == 0 {
+		cfg.ScoreMaxForJudge = 75
+	}
+	if cfg.TimeoutSeconds == 0 {
+		cfg.TimeoutSeconds = 10
+	}
+	if cfg.MaxTokens == 0 {
+		cfg.MaxTokens = 150
+	}
+	if cfg.ScoreBoostOnAttack == 0 {
+		cfg.ScoreBoostOnAttack = 30
+	}
+	if cfg.ScorePenaltyOnBenign == 0 {
+		cfg.ScorePenaltyOnBenign = 15
+	}
+
+	cfg.IncludeReasoningInResult = true
+
+	if cfg.APIKey == "" {
+		switch cfg.Provider {
+		case JudgeProviderOpenAI:
+			cfg.APIKey = os.Getenv("OPENAI_API_KEY")
+		case JudgeProviderAnthropic:
+			cfg.APIKey = os.Getenv("ANTHROPIC_API_KEY")
+		}
+	}
+}
+
+func isZeroJudgeConfig(cfg *JudgeConfig) bool {
+	if cfg == nil {
+		return true
+	}
+
+	return cfg.Provider == "" &&
+		cfg.Model == "" &&
+		cfg.APIKey == "" &&
+		cfg.BaseURL == "" &&
+		cfg.ScoreThreshold == 0 &&
+		cfg.ScoreMaxForJudge == 0 &&
+		cfg.TimeoutSeconds == 0 &&
+		cfg.MaxTokens == 0 &&
+		cfg.SystemPrompt == "" &&
+		cfg.ScoreBoostOnAttack == 0 &&
+		cfg.ScorePenaltyOnBenign == 0 &&
+		!cfg.IncludeReasoningInResult
 }
 
 const defaultMaxCustomScannerScore = 50
@@ -409,6 +592,36 @@ func New(cfg Config) (*Shield, error) {
 	}
 	if err := validateScanners(cfg.ExtraOutputScanners, "ExtraOutputScanners"); err != nil {
 		return nil, err
+	}
+
+	if cfg.Judge != nil {
+		judgeCfg := *cfg.Judge
+		cfg.Judge = &judgeCfg
+
+		if isZeroJudgeConfig(cfg.Judge) {
+			cfg.Judge = nil
+		} else {
+			if strings.TrimSpace(string(cfg.Judge.Provider)) == "" {
+				return nil, fmt.Errorf("JudgeConfig.Provider must be set")
+			}
+
+			switch cfg.Judge.Provider {
+			case JudgeProviderOllama, JudgeProviderOpenAI, JudgeProviderAnthropic, JudgeProviderCustom:
+				// valid provider
+			default:
+				return nil, fmt.Errorf("unknown JudgeConfig.Provider %q", cfg.Judge.Provider)
+			}
+
+			applyJudgeDefaults(cfg.Judge)
+
+			if cfg.Judge.Provider == JudgeProviderCustom && strings.TrimSpace(cfg.Judge.BaseURL) == "" {
+				return nil, fmt.Errorf("JudgeConfig.BaseURL must be set for custom provider")
+			}
+
+			if (cfg.Judge.Provider == JudgeProviderOpenAI || cfg.Judge.Provider == JudgeProviderAnthropic) && strings.TrimSpace(cfg.Judge.APIKey) == "" {
+				fmt.Fprintf(os.Stderr, "warning: JudgeConfig API key is empty for provider %q; set APIKey or environment variable\n", cfg.Judge.Provider)
+			}
+		}
 	}
 
 	resolvedCfg, err := engine.ResolveConfig(toEngineCfg(cfg))
@@ -892,6 +1105,28 @@ func toEngineCfg(cfg Config) engine.Config {
 		ExtraScanners:                  toEngineScanners(cfg.ExtraScanners),
 		ExtraOutputScanners:            toEngineScanners(cfg.ExtraOutputScanners),
 		MaxCustomScannerScore:          maxCustomScore,
+		Judge:                          toEngineJudgeConfig(cfg.Judge),
+	}
+}
+
+func toEngineJudgeConfig(cfg *JudgeConfig) *engine.JudgeConfig {
+	if cfg == nil {
+		return nil
+	}
+
+	return &engine.JudgeConfig{
+		Provider:                 strings.TrimSpace(string(cfg.Provider)),
+		Model:                    strings.TrimSpace(cfg.Model),
+		APIKey:                   strings.TrimSpace(cfg.APIKey),
+		BaseURL:                  strings.TrimSpace(cfg.BaseURL),
+		ScoreThreshold:           cfg.ScoreThreshold,
+		ScoreMaxForJudge:         cfg.ScoreMaxForJudge,
+		TimeoutSeconds:           cfg.TimeoutSeconds,
+		MaxTokens:                cfg.MaxTokens,
+		SystemPrompt:             cfg.SystemPrompt,
+		ScoreBoostOnAttack:       cfg.ScoreBoostOnAttack,
+		ScorePenaltyOnBenign:     cfg.ScorePenaltyOnBenign,
+		IncludeReasoningInResult: cfg.IncludeReasoningInResult,
 	}
 }
 

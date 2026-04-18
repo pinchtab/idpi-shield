@@ -5,6 +5,7 @@ package engine
 import (
 	"context"
 	"fmt"
+	"log"
 	"regexp"
 	"strings"
 	"time"
@@ -35,6 +36,7 @@ type Config struct {
 	ExtraScanners                  []ConfigScanner
 	ExtraOutputScanners            []ConfigScanner
 	MaxCustomScannerScore          int
+	Judge                          *JudgeConfig
 }
 
 // Engine is the core analysis engine.
@@ -49,6 +51,8 @@ type Engine struct {
 	banListCfg           banListConfig
 	customScanners       []LayeredScanner
 	customOutputScanners []LayeredScanner
+	judge                llmJudge
+	judgeConfig          judgeConfig
 }
 
 // New creates a new Engine with the given configuration.
@@ -73,6 +77,16 @@ func New(cfg Config) *Engine {
 		normalizer:       newNormalizer(),
 		domain:           newDomainChecker(cfg.AllowedDomains),
 		compiledBanRegex: compileCustomRegex(cfg.CustomRegex),
+	}
+
+	if cfg.Judge != nil {
+		e.judgeConfig = toInternalJudgeConfig(*cfg.Judge)
+		judge, err := newJudge(e.judgeConfig)
+		if err == nil {
+			e.judge = judge
+		} else {
+			log.Printf("idpishield judge init unavailable: %v", err)
+		}
 	}
 
 	scoreCap := cfg.MaxCustomScannerScore
@@ -159,6 +173,8 @@ func (e *Engine) AssessContext(ctx context.Context, text, sourceURL string) Risk
 		result = applyCustomScanResult(result, customResult, layerResults, e.cfg.StrictMode, e.cfg.BlockThreshold)
 	}
 
+	result = e.maybeApplyJudge(ctx, boundedText, result)
+
 	if e.cfg.Mode == ModeDeep && e.service != nil && result.Score >= ThresholdEscalation {
 		serviceResult, err := e.service.assess(ctx, boundedText, sourceURL, e.cfg.Mode.String())
 		if err == nil {
@@ -166,6 +182,26 @@ func (e *Engine) AssessContext(ctx context.Context, text, sourceURL string) Risk
 			return *serviceResult
 		}
 	}
+
+	return result
+}
+
+func (e *Engine) maybeApplyJudge(ctx context.Context, text string, result RiskResult) RiskResult {
+	if e == nil || e.judge == nil || !shouldJudge(result.Score, e.judgeConfig) {
+		return result
+	}
+
+	verdict, err := e.judge.Judge(ctx, text, result.Score)
+	if err != nil {
+		log.Printf("idpishield judge unavailable: %v", err)
+		return result
+	}
+
+	originalScore := result.Score
+	result.Score = applyJudgeVerdict(result.Score, verdict, e.judgeConfig)
+	result.Level = ScoreToLevel(result.Score)
+	result.Blocked = ShouldBlock(result.Score, e.cfg.StrictMode, e.cfg.BlockThreshold)
+	result.JudgeVerdict = toPublicVerdict(verdict, e.judgeConfig, result.Score-originalScore)
 
 	return result
 }

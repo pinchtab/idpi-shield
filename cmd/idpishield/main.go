@@ -26,26 +26,27 @@ type overDefenseCase struct {
 }
 
 type scanOutput struct {
-	Score               int                `json:"score"`
-	Level               string             `json:"level"`
-	Blocked             bool               `json:"blocked"`
-	Reason              string             `json:"reason"`
-	Patterns            []string           `json:"patterns"`
-	Categories          []string           `json:"categories"`
-	BanListMatches      []string           `json:"ban_list_matches"`
-	OverDefenseRisk     float64            `json:"over_defense_risk"`
-	IsOutputScan        bool               `json:"is_output_scan"`
-	PIIFound            bool               `json:"pii_found"`
-	PIITypes            []string           `json:"pii_types"`
-	RedactedText        string             `json:"redacted_text"`
-	RelevanceScore      float64            `json:"relevance_score"`
-	CodeDetected        bool               `json:"code_detected"`
-	HarmfulCodePatterns []string           `json:"harmful_code_patterns"`
-	Intent              idpi.Intent        `json:"intent,omitempty"`
-	Layers              []idpi.LayerResult `json:"layers,omitempty"`
-	CleanText           string             `json:"clean_text,omitempty"`
-	RedactionCount      int                `json:"redaction_count,omitempty"`
-	Redactions          []redactionOutput  `json:"redactions,omitempty"`
+	Score               int                      `json:"score"`
+	Level               string                   `json:"level"`
+	Blocked             bool                     `json:"blocked"`
+	Reason              string                   `json:"reason"`
+	Patterns            []string                 `json:"patterns"`
+	Categories          []string                 `json:"categories"`
+	BanListMatches      []string                 `json:"ban_list_matches"`
+	OverDefenseRisk     float64                  `json:"over_defense_risk"`
+	IsOutputScan        bool                     `json:"is_output_scan"`
+	PIIFound            bool                     `json:"pii_found"`
+	PIITypes            []string                 `json:"pii_types"`
+	RedactedText        string                   `json:"redacted_text"`
+	RelevanceScore      float64                  `json:"relevance_score"`
+	CodeDetected        bool                     `json:"code_detected"`
+	HarmfulCodePatterns []string                 `json:"harmful_code_patterns"`
+	Intent              idpi.Intent              `json:"intent,omitempty"`
+	Layers              []idpi.LayerResult       `json:"layers,omitempty"`
+	JudgeVerdict        *idpi.JudgeVerdictResult `json:"judge_verdict"`
+	CleanText           string                   `json:"clean_text,omitempty"`
+	RedactionCount      int                      `json:"redaction_count,omitempty"`
+	Redactions          []redactionOutput        `json:"redactions,omitempty"`
 }
 
 type redactionOutput struct {
@@ -350,6 +351,12 @@ func runScan(args []string) error {
 	allowOutputCode := fs.Bool("allow-output-code", false, "allow code in output and only flag harmful code")
 	banOutputCode := fs.Bool("ban-output-code", false, "treat any code in output as suspicious")
 	sanitize := fs.Bool("sanitize", false, "run sanitization in addition to scoring")
+	judgeProvider := fs.String("judge-provider", "", "LLM provider: ollama, openai, anthropic, custom")
+	judgeModel := fs.String("judge-model", "", "model name (uses provider default if not set)")
+	judgeAPIKey := fs.String("judge-api-key", "", "API key (also reads from env vars)")
+	judgeBaseURL := fs.String("judge-base-url", "", "custom API base URL")
+	judgeThreshold := fs.Int("judge-threshold", 25, "min score to trigger judge")
+	judgeTimeout := fs.Int("judge-timeout", 10, "judge timeout in seconds")
 
 	if err := fs.Parse(args); err != nil {
 		printUsage(os.Stderr)
@@ -384,6 +391,18 @@ func runScan(args []string) error {
 		ConfigFile:                     strings.TrimSpace(*configFile),
 		AllowOutputCode:                *allowOutputCode,
 		BanOutputCode:                  *banOutputCode,
+	}
+
+	provider := strings.ToLower(strings.TrimSpace(*judgeProvider))
+	if provider != "" {
+		shieldConfig.Judge = &idpi.JudgeConfig{
+			Provider:       idpi.JudgeProvider(provider),
+			Model:          strings.TrimSpace(*judgeModel),
+			APIKey:         strings.TrimSpace(*judgeAPIKey),
+			BaseURL:        strings.TrimSpace(*judgeBaseURL),
+			ScoreThreshold: *judgeThreshold,
+			TimeoutSeconds: *judgeTimeout,
+		}
 	}
 	if err := applyProfileDefaults(*profile, &shieldConfig); err != nil {
 		return err
@@ -435,6 +454,7 @@ func runScan(args []string) error {
 		HarmfulCodePatterns: result.HarmfulCodePatterns,
 		Intent:              result.Intent,
 		Layers:              result.Layers,
+		JudgeVerdict:        result.JudgeVerdict,
 		CleanText:           cleanText,
 		RedactionCount:      len(redactions),
 		Redactions:          toRedactionOutput(redactions),
@@ -590,6 +610,7 @@ func runScanOutput(args []string) error {
 		HarmfulCodePatterns: result.HarmfulCodePatterns,
 		Intent:              result.Intent,
 		Layers:              result.Layers,
+		JudgeVerdict:        result.JudgeVerdict,
 	}
 
 	enc := json.NewEncoder(os.Stdout)
@@ -705,6 +726,12 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "  --allow-output-code     allow code in output and only flag harmful code")
 	fmt.Fprintln(w, "  --ban-output-code       treat any code in output as suspicious")
 	fmt.Fprintln(w, "  --sanitize              run sanitization in addition to risk scoring")
+	fmt.Fprintln(w, "  --judge-provider        LLM provider: ollama|openai|anthropic|custom")
+	fmt.Fprintln(w, "  --judge-model           model name (provider default when empty)")
+	fmt.Fprintln(w, "  --judge-api-key         API key (also read from environment)")
+	fmt.Fprintln(w, "  --judge-base-url        custom API base URL")
+	fmt.Fprintln(w, "  --judge-threshold       min score to trigger judge (default: 25)")
+	fmt.Fprintln(w, "  --judge-timeout         judge HTTP timeout in seconds (default: 10)")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "sanitize flags:")
 	fmt.Fprintln(w, "  --redact-emails        enable email redaction (default: true)")
