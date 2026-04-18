@@ -245,6 +245,10 @@ func isOllamaAvailable(model string) bool {
 }
 
 func TestJudge_OllamaIntegration(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping live LLM test in short mode")
+	}
+
 	if !isOllamaAvailable("llama3.2") {
 		t.Skip("Ollama not available - skipping live LLM test")
 	}

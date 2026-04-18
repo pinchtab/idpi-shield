@@ -393,10 +393,10 @@ func applyJudgeDefaults(cfg *JudgeConfig) {
 		}
 	}
 
-	if cfg.ScoreThreshold == 0 {
+	if cfg.ScoreThreshold == 0 && cfg.ScoreMaxForJudge == 0 {
 		cfg.ScoreThreshold = 25
-	}
-	if cfg.ScoreMaxForJudge == 0 {
+		cfg.ScoreMaxForJudge = 75
+	} else if cfg.ScoreMaxForJudge == 0 {
 		cfg.ScoreMaxForJudge = 75
 	}
 	if cfg.TimeoutSeconds == 0 {
@@ -618,9 +618,6 @@ func New(cfg Config) (*Shield, error) {
 				return nil, fmt.Errorf("JudgeConfig.BaseURL must be set for custom provider")
 			}
 
-			if (cfg.Judge.Provider == JudgeProviderOpenAI || cfg.Judge.Provider == JudgeProviderAnthropic) && strings.TrimSpace(cfg.Judge.APIKey) == "" {
-				fmt.Fprintf(os.Stderr, "warning: JudgeConfig API key is empty for provider %q; set APIKey or environment variable\n", cfg.Judge.Provider)
-			}
 		}
 	}
 

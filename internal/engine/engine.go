@@ -5,7 +5,6 @@ package engine
 import (
 	"context"
 	"fmt"
-	"log"
 	"regexp"
 	"strings"
 	"time"
@@ -84,8 +83,6 @@ func New(cfg Config) *Engine {
 		judge, err := newJudge(e.judgeConfig)
 		if err == nil {
 			e.judge = judge
-		} else {
-			log.Printf("idpishield judge init unavailable: %v", err)
 		}
 	}
 
@@ -193,7 +190,6 @@ func (e *Engine) maybeApplyJudge(ctx context.Context, text string, result RiskRe
 
 	verdict, err := e.judge.Judge(ctx, text, result.Score)
 	if err != nil {
-		log.Printf("idpishield judge unavailable: %v", err)
 		return result
 	}
 

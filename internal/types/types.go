@@ -204,7 +204,7 @@ type RiskResult struct {
 
 	// JudgeVerdict contains the LLM judge's assessment, if enabled.
 	// Nil when LLM judgment was not performed.
-	JudgeVerdict *JudgeVerdictResult `json:"judge_verdict"`
+	JudgeVerdict *JudgeVerdictResult `json:"judge_verdict,omitempty"`
 }
 
 // ScoreToLevel maps a 0–100 score to its corresponding severity level.
